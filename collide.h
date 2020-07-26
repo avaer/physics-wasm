@@ -14,16 +14,30 @@
 #include "extensions/PxTriangleMeshExt.h"
 #include "PxQueryReport.h"
 #include "geometry/PxGeometryQuery.h"
-// #include <vector>
+#include <set>
 #include <iostream>
 
 using namespace physx;
+
+class GeometrySpec {
+public:
+  GeometrySpec(PxTriangleMeshGeometry *meshGeom, PxTransform meshPose) : meshGeom(meshGeom), meshPose(meshPose) {}
+  ~GeometrySpec() {
+    PxTriangleMesh *triangleMesh = meshGeom->triangleMesh;
+    delete meshGeom;
+    triangleMesh->release();
+  }
+
+  PxTriangleMeshGeometry *meshGeom;
+  PxTransform meshPose;
+};
 
 PxDefaultAllocator *gAllocator = nullptr;
 PxDefaultErrorCallback *gErrorCallback = nullptr;
 PxFoundation *gFoundation = nullptr;
 PxPhysics *physics = nullptr;
 PxCooking *cooking = nullptr;
+std::set<GeometrySpec *> geometrySpecs;
 
 void doInitPhysx() {
   gAllocator = new PxDefaultAllocator();
@@ -36,7 +50,7 @@ void doInitPhysx() {
   cooking = PxCreateCooking(PX_PHYSICS_VERSION, *gFoundation, cookingParams);
 }
 
-uintptr_t doRegisterGeometry(float *positions, unsigned int *indices, unsigned int numPositions, unsigned int numIndices) {
+uintptr_t doRegisterGeometry(float *positions, unsigned int *indices, unsigned int numPositions, unsigned int numIndices, float *meshPosition, float *meshQuaternion) {
   PxVec3 *verts = (PxVec3 *)positions;
   PxU32 nbVerts = numPositions/3;
   PxU32 *indices32 = (PxU32 *)indices;
@@ -71,95 +85,98 @@ uintptr_t doRegisterGeometry(float *positions, unsigned int *indices, unsigned i
   PxDefaultMemoryInputData readBuffer(writeBuffer.getData(), writeBuffer.getSize());
   PxTriangleMesh *triangleMesh = physics->createTriangleMesh(readBuffer);
   PxTriangleMeshGeometry *meshGeom = new PxTriangleMeshGeometry(triangleMesh);
-  return (uintptr_t)meshGeom;
-}
-
-void doUnregisterGeometry(uintptr_t triangleMeshGeomPtr) {
-  PxTriangleMeshGeometry *meshGeom = (PxTriangleMeshGeometry *)triangleMeshGeomPtr;
-  PxTriangleMesh *triangleMesh = meshGeom->triangleMesh;
-  delete meshGeom;
-  triangleMesh->release();
-}
-
-void doRaycast(float *origin, float *direction, uintptr_t triangleMeshGeomPtr, float *meshPosition, float *meshQuaternion, unsigned int &hit, float *position, float *normal, float &distance) {
-  PxTriangleMeshGeometry *meshGeom = (PxTriangleMeshGeometry *)triangleMeshGeomPtr;
   PxTransform meshPose(
     PxVec3{meshPosition[0], meshPosition[1], meshPosition[2]},
     PxQuat{meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]}
   );
-
-  PxVec3 originVec{origin[0], origin[1], origin[3]};
-  PxVec3 directionVec{direction[0], direction[1], direction[2]};
-  PxRaycastHit hitInfo;
-  float maxDist = 1000.0;
-  PxHitFlags hitFlags = PxHitFlag::eDEFAULT;
-  PxU32 maxHits = 1;
-  PxU32 hitCount = PxGeometryQuery::raycast(originVec, directionVec,
-                                            *meshGeom,
-                                            meshPose,
-                                            maxDist,
-                                            hitFlags,
-                                            maxHits, &hitInfo);
-
-  if (hitCount > 0) {
-    hit = 1;
-    position[0] = hitInfo.position.x;
-    position[1] = hitInfo.position.y;
-    position[2] = hitInfo.position.z;
-    normal[0] = hitInfo.normal.x;
-    normal[1] = hitInfo.normal.y;
-    normal[2] = hitInfo.normal.z;
-    distance = hitInfo.distance;
-  } else {
-    hit = 0;
-  }
+  GeometrySpec *geometrySpec = new GeometrySpec(meshGeom, meshPose);
+  geometrySpecs.insert(geometrySpec);
+  return (uintptr_t)geometrySpec;
 }
 
-void doCollide(float radius, float halfHeight, float *position, float *quaternion, uintptr_t triangleMeshGeomPtr, float *meshPosition, float *meshQuaternion, unsigned int maxIter, unsigned int &hit, float *direction, float &depth) {
-  PxCapsuleGeometry geom(radius, halfHeight);
-  PxTransform geomPose(
-    PxVec3{position[0], position[1], position[2]},
-    PxQuat{quaternion[0], quaternion[1], quaternion[2], quaternion[3]}
-  );
+void doUnregisterGeometry(uintptr_t geometrySpecPtr) {
+  GeometrySpec *geometrySpec = (GeometrySpec *)geometrySpecPtr;
+  delete geometrySpec;
+  geometrySpecs.erase(geometrySpec);
+}
 
-  PxTriangleMeshGeometry *meshGeom = (PxTriangleMeshGeometry *)triangleMeshGeomPtr;
-  PxTransform meshPose(
-    PxVec3{meshPosition[0], meshPosition[1], meshPosition[2]},
-    PxQuat{meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]}
-  );
+void doRaycast(float *origin, float *direction, unsigned int &hit, float *position, float *normal, float &distance) {
+  for (GeometrySpec *geometrySpec : geometrySpecs) {
+    PxTriangleMeshGeometry *meshGeom = geometrySpec->meshGeom;
+    const PxTransform &meshPose = geometrySpec->meshPose;
 
-  // PxU32 maxIter = 4;
-  /* PxU32 nb;
-  PxVec3 depenetrationVector = PxComputeMeshPenetration(
-    maxIter,
-    geom,
-    geomPose,
-    meshGeom,
-    meshPose,
-    nb   
-  ); */
-  PxVec3 directionVec{0, 0, 0};
-  PxReal depthFloat = 0;
-  // bool result = PxGeometryQuery::computePenetration(direction, depth, geom, geomPose, meshGeom, meshPose);
-  bool result = PxComputeTriangleMeshPenetration(
-    directionVec,
-    depthFloat,
-    geom,
-    geomPose,
-    *meshGeom,
-    meshPose,
-    maxIter,
-    nullptr
-  );
-  if (result) {
-    hit = 1;
-    direction[0] = directionVec.x;
-    direction[1] = directionVec.y;
-    direction[2] = directionVec.z;
-    depth = depthFloat;
-  } else {
-    hit = 0;
+    PxVec3 originVec{origin[0], origin[1], origin[3]};
+    PxVec3 directionVec{direction[0], direction[1], direction[2]};
+    PxRaycastHit hitInfo;
+    float maxDist = 1000.0;
+    PxHitFlags hitFlags = PxHitFlag::eDEFAULT;
+    PxU32 maxHits = 1;
+    PxU32 hitCount = PxGeometryQuery::raycast(originVec, directionVec,
+                                              *meshGeom,
+                                              meshPose,
+                                              maxDist,
+                                              hitFlags,
+                                              maxHits, &hitInfo);
+
+    if (hitCount > 0) {
+      hit = 1;
+      position[0] = hitInfo.position.x;
+      position[1] = hitInfo.position.y;
+      position[2] = hitInfo.position.z;
+      normal[0] = hitInfo.normal.x;
+      normal[1] = hitInfo.normal.y;
+      normal[2] = hitInfo.normal.z;
+      distance = hitInfo.distance;
+      return;
+    }
   }
+  hit = 0;
+}
+
+void doCollide(float radius, float halfHeight, float *position, float *quaternion, unsigned int maxIter, unsigned int &hit, float *direction, float &depth) {
+  for (GeometrySpec *geometrySpec : geometrySpecs) {
+    PxTriangleMeshGeometry *meshGeom = geometrySpec->meshGeom;
+    const PxTransform &meshPose = geometrySpec->meshPose;
+
+    PxCapsuleGeometry geom(radius, halfHeight);
+    PxTransform geomPose(
+      PxVec3{position[0], position[1], position[2]},
+      PxQuat{quaternion[0], quaternion[1], quaternion[2], quaternion[3]}
+    );
+
+    // PxU32 maxIter = 4;
+    /* PxU32 nb;
+    PxVec3 depenetrationVector = PxComputeMeshPenetration(
+      maxIter,
+      geom,
+      geomPose,
+      meshGeom,
+      meshPose,
+      nb
+    ); */
+    PxVec3 directionVec{0, 0, 0};
+    PxReal depthFloat = 0;
+    // bool result = PxGeometryQuery::computePenetration(direction, depth, geom, geomPose, meshGeom, meshPose);
+    bool result = PxComputeTriangleMeshPenetration(
+      directionVec,
+      depthFloat,
+      geom,
+      geomPose,
+      *meshGeom,
+      meshPose,
+      maxIter,
+      nullptr
+    );
+    if (result) {
+      hit = 1;
+      direction[0] = directionVec.x;
+      direction[1] = directionVec.y;
+      direction[2] = directionVec.z;
+      depth = depthFloat;
+      return;
+    }
+  }
+  hit = 0;
 }
 
 /* void doFindOverlap() {
