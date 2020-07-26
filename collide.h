@@ -14,6 +14,7 @@
 #include "extensions/PxTriangleMeshExt.h"
 #include "PxQueryReport.h"
 #include "geometry/PxGeometryQuery.h"
+// #include <vector>
 #include <iostream>
 
 using namespace physx;
@@ -24,15 +25,144 @@ PxFoundation *gFoundation = nullptr;
 PxPhysics *physics = nullptr;
 PxCooking *cooking = nullptr;
 
-void doInitOverlap() {
+void doInitPhysx() {
   gAllocator = new PxDefaultAllocator();
   gErrorCallback = new PxDefaultErrorCallback();
   gFoundation = PxCreateFoundation(PX_PHYSICS_VERSION, *gAllocator, *gErrorCallback);
-  physics = PxCreatePhysics(PX_PHYSICS_VERSION, *gFoundation, PxTolerancesScale());
-  cooking = PxCreateCooking(PX_PHYSICS_VERSION, *gFoundation, PxCookingParams(PxTolerancesScale()));
+  PxTolerancesScale tolerancesScale;
+  physics = PxCreatePhysics(PX_PHYSICS_VERSION, *gFoundation, tolerancesScale);
+  PxCookingParams cookingParams(tolerancesScale);
+  cookingParams.midphaseDesc = PxMeshMidPhase::eBVH34;
+  cooking = PxCreateCooking(PX_PHYSICS_VERSION, *gFoundation, cookingParams);
 }
 
-void doFindOverlap() {
+uintptr_t doRegisterGeometry(float *positions, unsigned int *indices, unsigned int numPositions, unsigned int numIndices) {
+  PxVec3 *verts = (PxVec3 *)positions;
+  PxU32 nbVerts = numPositions/3;
+  PxU32 *indices32 = (PxU32 *)indices;
+  PxU32 triCount = numIndices/3;
+
+  /* std::vector<PxU32> indicesCache;
+  if (indices32 == nullptr) {
+    numIndices = nbVerts/3;
+    indicesCache.resize(numIndices);
+    for (unsigned int i = 0; i < numIndices; i++) {
+      indicesCache[i] = i;
+    }
+    indices32 = indicesCache.data();
+    triCount = numIndices/3;
+  } */
+
+  PxTriangleMeshDesc meshDesc;
+  meshDesc.points.count           = nbVerts;
+  meshDesc.points.stride          = sizeof(PxVec3);
+  meshDesc.points.data            = verts;
+
+  meshDesc.triangles.count        = triCount;
+  meshDesc.triangles.stride       = 3*sizeof(PxU32);
+  meshDesc.triangles.data         = indices32;
+
+  PxDefaultMemoryOutputStream writeBuffer;
+  bool status = cooking->cookTriangleMesh(meshDesc, writeBuffer);
+  if (!status) {
+    return 0;
+  }
+
+  PxDefaultMemoryInputData readBuffer(writeBuffer.getData(), writeBuffer.getSize());
+  PxTriangleMesh *triangleMesh = physics->createTriangleMesh(readBuffer);
+  PxTriangleMeshGeometry *meshGeom = new PxTriangleMeshGeometry(triangleMesh);
+  return (uintptr_t)meshGeom;
+}
+
+void doUnregisterGeometry(uintptr_t triangleMeshGeomPtr) {
+  PxTriangleMeshGeometry *meshGeom = (PxTriangleMeshGeometry *)triangleMeshGeomPtr;
+  PxTriangleMesh *triangleMesh = meshGeom->triangleMesh;
+  delete meshGeom;
+  triangleMesh->release();
+}
+
+void doRaycast(float *origin, float *direction, uintptr_t triangleMeshGeomPtr, float *meshPosition, float *meshQuaternion, unsigned int &hit, float *position, float *normal, float &distance) {
+  PxTriangleMeshGeometry *meshGeom = (PxTriangleMeshGeometry *)triangleMeshGeomPtr;
+  PxTransform meshPose(
+    PxVec3{meshPosition[0], meshPosition[1], meshPosition[2]},
+    PxQuat{meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]}
+  );
+
+  PxVec3 originVec{origin[0], origin[1], origin[3]};
+  PxVec3 directionVec{direction[0], direction[1], direction[2]};
+  PxRaycastHit hitInfo;
+  float maxDist = 1000.0;
+  PxHitFlags hitFlags = PxHitFlag::eDEFAULT;
+  PxU32 maxHits = 1;
+  PxU32 hitCount = PxGeometryQuery::raycast(originVec, directionVec,
+                                            *meshGeom,
+                                            meshPose,
+                                            maxDist,
+                                            hitFlags,
+                                            maxHits, &hitInfo);
+
+  if (hitCount > 0) {
+    hit = 1;
+    position[0] = hitInfo.position.x;
+    position[1] = hitInfo.position.y;
+    position[2] = hitInfo.position.z;
+    normal[0] = hitInfo.normal.x;
+    normal[1] = hitInfo.normal.y;
+    normal[2] = hitInfo.normal.z;
+    distance = hitInfo.distance;
+  } else {
+    hit = 0;
+  }
+}
+
+void doCollide(float radius, float halfHeight, float *position, float *quaternion, uintptr_t triangleMeshGeomPtr, float *meshPosition, float *meshQuaternion, unsigned int maxIter, unsigned int &hit, float *direction, float &depth) {
+  PxCapsuleGeometry geom(radius, halfHeight);
+  PxTransform geomPose(
+    PxVec3{position[0], position[1], position[2]},
+    PxQuat{quaternion[0], quaternion[1], quaternion[2], quaternion[3]}
+  );
+
+  PxTriangleMeshGeometry *meshGeom = (PxTriangleMeshGeometry *)triangleMeshGeomPtr;
+  PxTransform meshPose(
+    PxVec3{meshPosition[0], meshPosition[1], meshPosition[2]},
+    PxQuat{meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]}
+  );
+
+  // PxU32 maxIter = 4;
+  /* PxU32 nb;
+  PxVec3 depenetrationVector = PxComputeMeshPenetration(
+    maxIter,
+    geom,
+    geomPose,
+    meshGeom,
+    meshPose,
+    nb   
+  ); */
+  PxVec3 directionVec{0, 0, 0};
+  PxReal depthFloat = 0;
+  // bool result = PxGeometryQuery::computePenetration(direction, depth, geom, geomPose, meshGeom, meshPose);
+  bool result = PxComputeTriangleMeshPenetration(
+    directionVec,
+    depthFloat,
+    geom,
+    geomPose,
+    *meshGeom,
+    meshPose,
+    maxIter,
+    nullptr
+  );
+  if (result) {
+    hit = 1;
+    direction[0] = directionVec.x;
+    direction[1] = directionVec.y;
+    direction[2] = directionVec.z;
+    depth = depthFloat;
+  } else {
+    hit = 0;
+  }
+}
+
+/* void doFindOverlap() {
   std::cout << "overlap 1" << std::endl;
   PxCapsuleGeometry geom(
     1, // radius
@@ -81,15 +211,6 @@ void doFindOverlap() {
   PxTransform meshPose;
   PxU32 maxIter = 4;
   std::cout << "overlap 5" << std::endl;
-  /* PxU32 nb;
-  PxVec3 depenetrationVector = PxComputeMeshPenetration(
-    maxIter,
-    geom,
-    geomPose,
-    meshGeom,
-    meshPose,
-    nb   
-  ); */
   PxVec3 direction{0, 0, 0};
   PxReal depth = 0;
   // bool result = PxGeometryQuery::computePenetration(direction, depth, geom, geomPose, meshGeom, meshPose);
@@ -104,23 +225,6 @@ void doFindOverlap() {
     nullptr
   );
   std::cout << "got result " << result << " " << direction.x << " " << direction.y << " " << direction.z << " " << depth << std::endl;
-  /* PxU32 results[16];
-  PxU32 maxResults = sizeof(results)/sizeof(results[0]);
-  PxU32 startIndex = 0;
-  bool overflow = false;
-  PxU32 numResults = PxMeshQuery::findOverlapTriangleMesh(geom, geomPose,
-                                meshGeom, meshPose,
-                                results, maxResults, startIndex, overflow);
-  for (PxU32 i = 0; i < numResults; i++) {
-    PxU32 index = results[i];
-    PxTriangle triangle;
-    PxMeshQuery::getTriangle(
-      meshGeom,
-      geomPose,
-      index,
-      triangle
-    );
-  } */
 
   PxVec3 origin{0, 2, 0};
   PxVec3 unitDir{0, -1, 0};
@@ -147,4 +251,4 @@ void doFindOverlap() {
   std::cout << "raycast result 2 " << hitCount << " " << hitInfo.position.x << " " << hitInfo.position.y << " " << hitInfo.position.z << " " << hitInfo.distance << std::endl;
 
   std::cout << "overlap 6" << std::endl;
-}
+} */
