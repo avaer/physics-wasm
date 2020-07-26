@@ -240,4 +240,4 @@ emcc --std=c++11 -s WASM=1 -O3 -s TOTAL_MEMORY=268435456 \
   PhysX/physx/source/physxextensions/src/ExtTriangleMeshExt.cpp \
   --pre-js prefix.js --post-js postfix.js \
   -o bin/physx.js
-cat prefix2.js bin/physx.js >bin/physx.js
+cat prefix2.js bin/physx.js >bin/physx2.js
