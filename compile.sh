@@ -137,10 +137,6 @@ emcc --std=c++11 -s WASM=1 -O3 -s TOTAL_MEMORY=268435456 \
   PhysX/physx/source/lowlevel/software/src/PxsMaterialCombiner.cpp \
   PhysX/physx/source/lowlevelaabb/src/BpAABBManager.cpp \
   PhysX/physx/source/lowlevel/common/src/pipeline/PxcNpBatch.cpp \
-  PhysX/physx/source/lowlevel/common/src/pipeline/PxcMaterialMethodImpl.cpp \
-  PhysX/physx/source/lowlevel/common/src/pipeline/PxcMaterialMesh.cpp \
-  PhysX/physx/source/lowlevel/common/src/pipeline/PxcMaterialShape.cpp \
-  PhysX/physx/source/lowlevel/common/src/pipeline/PxcMaterialHeightField.cpp \
   PhysX/physx/source/lowlevel/common/src/pipeline/PxcNpThreadContext.cpp \
   PhysX/physx/source/lowleveldynamics/src/DyThreadContext.cpp \
   PhysX/physx/source/physxcooking/src/convex/ConvexHullLib.cpp \
