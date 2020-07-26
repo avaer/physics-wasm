@@ -20,8 +20,8 @@ EMSCRIPTEN_KEEPALIVE void registerGeometry(unsigned int meshId, float *positions
 EMSCRIPTEN_KEEPALIVE void unregisterGeometry(uintptr_t geometrySpecPtr) {
   doUnregisterGeometry(geometrySpecPtr);
 }
-EMSCRIPTEN_KEEPALIVE void raycast(float *origin, float *direction, float *meshPosition, float *meshQuaternion, unsigned int *hit, float *position, float *normal, float *distance, unsigned int *meshId, unsigned int *faceIndex) {
-  doRaycast(origin, direction, meshPosition, meshQuaternion, *hit, position, normal, *distance, *meshId, *faceIndex);
+EMSCRIPTEN_KEEPALIVE void raycast(float *origin, float *direction,  unsigned int *hit, float *position, float *normal, float *distance, unsigned int *meshId, unsigned int *faceIndex) {
+  doRaycast(origin, direction, *hit, position, normal, *distance, *meshId, *faceIndex);
 }
 EMSCRIPTEN_KEEPALIVE void collide(float radius, float halfHeight, float *position, float *quaternion, unsigned int maxIter, unsigned int *hit, float *direction, float *depth) {
   doCollide(radius, halfHeight, position, quaternion, maxIter, *hit, direction, *depth);
