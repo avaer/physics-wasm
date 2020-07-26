@@ -98,6 +98,61 @@ uintptr_t doRegisterGeometry(unsigned int meshId, float *positions, unsigned int
   return (uintptr_t)geometrySpec;
 }
 
+uintptr_t doRegisterBakedGeometry(unsigned int meshId, uintptr_t data, size_t size, float *meshPosition, float *meshQuaternion) {
+  PxDefaultMemoryInputData readBuffer((PxU8 *)data, size);
+  PxTriangleMesh *triangleMesh = physics->createTriangleMesh(readBuffer);
+  PxTriangleMeshGeometry *meshGeom = new PxTriangleMeshGeometry(triangleMesh);
+  Sphere boundingSphere(meshPosition[0], meshPosition[1], meshPosition[2], subparcelRadius);
+  GeometrySpec *geometrySpec = new GeometrySpec(meshId, meshGeom, boundingSphere);
+  geometrySpecs.insert(geometrySpec);
+  return (uintptr_t)geometrySpec;
+}
+
+void doBakeGeometry(unsigned int meshId, float *positions, unsigned int *indices, unsigned int numPositions, unsigned int numIndices, uintptr_t &ptr, uintptr_t &data, size_t &size) {
+  PxVec3 *verts = (PxVec3 *)positions;
+  PxU32 nbVerts = numPositions/3;
+  PxU32 *indices32 = (PxU32 *)indices;
+  PxU32 triCount = numIndices/3;
+
+  /* std::vector<PxU32> indicesCache;
+  if (indices32 == nullptr) {
+    numIndices = nbVerts/3;
+    indicesCache.resize(numIndices);
+    for (unsigned int i = 0; i < numIndices; i++) {
+      indicesCache[i] = i;
+    }
+    indices32 = indicesCache.data();
+    triCount = numIndices/3;
+  } */
+
+  PxTriangleMeshDesc meshDesc;
+  meshDesc.points.count           = nbVerts;
+  meshDesc.points.stride          = sizeof(PxVec3);
+  meshDesc.points.data            = verts;
+
+  meshDesc.triangles.count        = triCount;
+  meshDesc.triangles.stride       = 3*sizeof(PxU32);
+  meshDesc.triangles.data         = indices32;
+
+  PxDefaultMemoryOutputStream *writeBuffer = new PxDefaultMemoryOutputStream();
+  bool status = cooking->cookTriangleMesh(meshDesc, *writeBuffer);
+  if (status) {
+    ptr = (uintptr_t)writeBuffer;
+    data = (uintptr_t)writeBuffer->getData();
+    size = writeBuffer->getSize();
+  } else {
+    delete writeBuffer;
+    ptr = 0;
+    data = 0;
+    size = 0;
+  }
+}
+
+void doReleaseBakeGeometry(uintptr_t ptr) {
+  PxDefaultMemoryOutputStream *writeBuffer = (PxDefaultMemoryOutputStream *)ptr;
+  delete writeBuffer;
+}
+
 void doUnregisterGeometry(uintptr_t geometrySpecPtr) {
   GeometrySpec *geometrySpec = (GeometrySpec *)geometrySpecPtr;
   delete geometrySpec;
@@ -112,7 +167,9 @@ void doRaycast(float *origin, float *direction, float *meshPosition, float *mesh
     PxVec3{meshPosition[0], meshPosition[1], meshPosition[2]},
     PxQuat{meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]}
   );
-  Matrix meshMatrix(Vec{meshPosition[0], meshPosition[1], meshPosition[2]}, Quat{meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]}, Vec{1, 1, 1});
+  Vec p(meshPosition[0], meshPosition[1], meshPosition[2]);
+  Quat q(meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]);
+  // Matrix meshMatrix(p, q, Vec(1, 1, 1));
 
   PxRaycastHit hitInfo;
   constexpr float maxDist = 1000.0;
@@ -122,7 +179,7 @@ void doRaycast(float *origin, float *direction, float *meshPosition, float *mesh
   std::vector<std::pair<float, GeometrySpec *>> sortedGeometrySpecs;
   sortedGeometrySpecs.reserve(geometrySpecs.size());
   for (GeometrySpec *geometrySpec : geometrySpecs) {
-    Sphere sphere(geometrySpec->boundingSphere.center.clone().applyMatrix(meshMatrix), geometrySpec->boundingSphere.radius);
+    Sphere sphere(geometrySpec->boundingSphere.center.clone().applyQuaternion(q) + p, geometrySpec->boundingSphere.radius);
     if (ray.intersectsSphere(sphere)) {
       sortedGeometrySpecs.push_back(std::pair<float, GeometrySpec *>(sphere.center.distanceTo(ray.origin), geometrySpec));
     }
@@ -177,13 +234,15 @@ void doCollide(float radius, float halfHeight, float *position, float *quaternio
   PxReal depthFloat;
 
   Vec capsulePosition(position[0], position[1], position[2]);
-  Matrix meshMatrix(Vec{meshPosition[0], meshPosition[1], meshPosition[2]}, Quat{meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]}, Vec{1, 1, 1});
+  Vec p(meshPosition[0], meshPosition[1], meshPosition[2]);
+  Quat q(meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]);
+  // Matrix meshMatrix(Vec{meshPosition[0], meshPosition[1], meshPosition[2]}, Quat{meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]}, Vec{1, 1, 1});
 
   std::vector<std::pair<float, GeometrySpec *>> sortedGeometrySpecs;
   sortedGeometrySpecs.reserve(geometrySpecs.size());
   const float maxDistance = subparcelRadius + halfHeight + radius;
   for (GeometrySpec *geometrySpec : geometrySpecs) {
-    Vec spherePosition = geometrySpec->boundingSphere.center.clone().applyMatrix(meshMatrix);
+    Vec spherePosition = geometrySpec->boundingSphere.center.clone().applyQuaternion(q) + p;
     float distance = spherePosition.distanceTo(capsulePosition);
     if (distance < maxDistance) {
       sortedGeometrySpecs.push_back(std::pair<float, GeometrySpec *>(distance, geometrySpec));
@@ -224,7 +283,7 @@ void doCollide(float radius, float halfHeight, float *position, float *quaternio
       );
       if (result) {
         hadHit = true;
-        offset = offset + Vec(directionVec.x, directionVec.y, directionVec.z)*depthFloat;
+        offset += Vec(directionVec.x, directionVec.y, directionVec.z)*depthFloat;
         geomPose.p.x += directionVec.x*depthFloat;
         geomPose.p.y += directionVec.y*depthFloat;
         geomPose.p.z += directionVec.z*depthFloat;

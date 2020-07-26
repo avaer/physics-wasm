@@ -80,6 +80,40 @@ class Matrix {
     }
 };
 
+class Quat {
+  public:
+    union {
+      float data[4];
+      struct {
+        float x;
+        float y;
+        float z;
+        float w;
+      };
+    };
+
+    Quat() {
+      x = 0;
+      y = 0;
+      z = 0;
+      w = 0;
+    }
+
+    Quat(float ax, float ay, float az, float aw) {
+      x = ax;
+      y = ay;
+      z = az;
+      w = aw;
+    }
+
+    Quat(const Quat &q) {
+      x = q.x;
+      y = q.y;
+      z = q.z;
+      w = q.w;
+    }
+};
+
 // 3D Vector Class
 // Can also be used for 2D vectors
 // by ignoring the z value
@@ -266,9 +300,9 @@ class Vec {
           return this->x * v.x + this->y * v.y + this->z * v.z;
         }
 
-        /* Vec &applyQuaternion(const Quat &q) {
-          float x = this->x, y = this->y, z = this->z;
-          float qx = q.x, qy = q.y, qz = q.z, qw = q.w;
+        Vec &applyQuaternion(const Quat &q) {
+          const float x = this->x, y = this->y, z = this->z;
+          const float qx = q.x, qy = q.y, qz = q.z, qw = q.w;
 
           // calculate quat * vector
 
@@ -285,7 +319,7 @@ class Vec {
 
           return *this;
 
-        } */
+        }
 
         Vec &applyMatrix(const Matrix &m) {
           const float *e = m.elements;
@@ -302,40 +336,6 @@ class Vec {
         Vec clone() const {
           return Vec(x, y, z);
         }
-};
-
-class Quat {
-  public:
-    union {
-      float data[4];
-      struct {
-        float x;
-        float y;
-        float z;
-        float w;
-      };
-    };
-
-    Quat() {
-      x = 0;
-      y = 0;
-      z = 0;
-      w = 0;
-    }
-
-    Quat(float ax, float ay, float az, float aw) {
-      x = ax;
-      y = ay;
-      z = az;
-      w = aw;
-    }
-
-    Quat(const Quat &q) {
-      x = q.x;
-      y = q.y;
-      z = q.z;
-      w = q.w;
-    }
 };
 
 Matrix::Matrix(const Vec &position, const Quat &quaternion, const Vec &scale) {
