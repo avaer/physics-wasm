@@ -28,7 +28,7 @@ emcc --std=c++11 -s WASM=1 -O3 -s TOTAL_MEMORY=268435456 \
   -IPhysX/physx/source/geomutils/src/distance \
   -IPhysX/physx/source/geomutils/src/sweep \
   -DNDEBUG -DPX_SIMD_DISABLED -DPX_EMSCRIPTEN=1 -DPX_COOKING \
-  objectize.cc util.cc FastNoise.cpp noise.cc cachedNoise.cc compose.cc march.cc tssl.cc light.cc heightfield.cc flod.cc noiser.cc cull.cc \
+  objectize.cc \
   PhysX/physx/source/geomutils/src/GuGeometryQuery.cpp \
   PhysX/physx/source/geomutils/src/GuMTD.cpp \
   PhysX/physx/source/common/src/CmMathUtils.cpp \
@@ -239,5 +239,5 @@ emcc --std=c++11 -s WASM=1 -O3 -s TOTAL_MEMORY=268435456 \
   PhysX/physx/source/geomutils/src/gjk/GuEPA.cpp \
   PhysX/physx/source/physxextensions/src/ExtTriangleMeshExt.cpp \
   --pre-js prefix.js --post-js postfix.js \
-  -o bin/objectize.js
-cat prefix2.js bin/objectize.js >bin/objectize2.js
+  -o bin/physx.js
+cat prefix2.js bin/physx.js >bin/physx.js
