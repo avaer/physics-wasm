@@ -7,6 +7,7 @@
 #include "cull.h"
 #include "noiser.h"
 #include "noise.h"
+#include "collide.h"
 // #include <iostream>
 
 extern "C" {
@@ -111,6 +112,14 @@ EMSCRIPTEN_KEEPALIVE void doNoise3(int seed, float baseHeight, float *freqs, int
 
 EMSCRIPTEN_KEEPALIVE void doFree(void *ptr) {
   free(ptr);
+}
+
+EMSCRIPTEN_KEEPALIVE void initOverlap() {
+  doInitOverlap();
+}
+
+EMSCRIPTEN_KEEPALIVE void findOverlap() {
+  doFindOverlap();
 }
 
 }
