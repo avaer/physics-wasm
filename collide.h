@@ -46,7 +46,7 @@ void doInitPhysx() {
   PxTolerancesScale tolerancesScale;
   physics = PxCreatePhysics(PX_PHYSICS_VERSION, *gFoundation, tolerancesScale);
   PxCookingParams cookingParams(tolerancesScale);
-  cookingParams.midphaseDesc = PxMeshMidPhase::eBVH34;
+  // cookingParams.midphaseDesc = PxMeshMidPhase::eBVH34;
   cooking = PxCreateCooking(PX_PHYSICS_VERSION, *gFoundation, cookingParams);
 }
 
