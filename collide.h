@@ -14,9 +14,6 @@
 #include "extensions/PxTriangleMeshExt.h"
 #include "PxQueryReport.h"
 #include "geometry/PxGeometryQuery.h"
-#include "PxScene.h"
-#include "PxSceneDesc.h"
-#include "PxRigidStatic.h"
 #include <set>
 #include <iostream>
 
@@ -24,30 +21,24 @@ using namespace physx;
 
 class GeometrySpec {
 public:
-  GeometrySpec(unsigned int meshId, PxTriangleMeshGeometry *meshGeom, PxRigidStatic *actor, PxShape *shape) :
-    meshId(meshId), meshGeom(meshGeom), actor(actor), shape(shape) {}
+  GeometrySpec(unsigned int meshId, PxTriangleMeshGeometry *meshGeom, PxTransform meshPose) : meshId(meshId), meshGeom(meshGeom), meshPose(meshPose) {}
   ~GeometrySpec() {
     PxTriangleMesh *triangleMesh = meshGeom->triangleMesh;
     delete meshGeom;
     triangleMesh->release();
-    actor->release();
-    shape->release();
   }
 
   unsigned int meshId;
   PxTriangleMeshGeometry *meshGeom;
-  PxRigidStatic *actor;
-  PxShape *shape;
+  PxTransform meshPose;
 };
-std::set<GeometrySpec *> geometrySpecs;
 
 PxDefaultAllocator *gAllocator = nullptr;
 PxDefaultErrorCallback *gErrorCallback = nullptr;
 PxFoundation *gFoundation = nullptr;
 PxPhysics *physics = nullptr;
 PxCooking *cooking = nullptr;
-PxScene *gScene = nullptr;
-PxMaterial *gMaterial = nullptr;
+std::set<GeometrySpec *> geometrySpecs;
 
 void doInitPhysx() {
   gAllocator = new PxDefaultAllocator();
@@ -58,8 +49,6 @@ void doInitPhysx() {
   PxCookingParams cookingParams(tolerancesScale);
   // cookingParams.midphaseDesc = PxMeshMidPhase::eBVH34;
   cooking = PxCreateCooking(PX_PHYSICS_VERSION, *gFoundation, cookingParams);
-  gScene = physics->createScene(PxSceneDesc(tolerancesScale));
-  gMaterial = physics->createMaterial(1, 1, 1);
 }
 
 uintptr_t doRegisterGeometry(unsigned int meshId, float *positions, unsigned int *indices, unsigned int numPositions, unsigned int numIndices, float *meshPosition, float *meshQuaternion) {
@@ -97,64 +86,65 @@ uintptr_t doRegisterGeometry(unsigned int meshId, float *positions, unsigned int
   PxDefaultMemoryInputData readBuffer(writeBuffer.getData(), writeBuffer.getSize());
   PxTriangleMesh *triangleMesh = physics->createTriangleMesh(readBuffer);
   PxTriangleMeshGeometry *meshGeom = new PxTriangleMeshGeometry(triangleMesh);
-  /* PxTransform meshPose(
+  PxTransform meshPose(
     PxVec3{meshPosition[0], meshPosition[1], meshPosition[2]},
     PxQuat{meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]}
-  ); */
-  PxTransform meshPose;
-  PxRigidStatic *actor = physics->createRigidStatic(meshPose);
-  PxShape *shape = physics->createShape(*meshGeom, *gMaterial);
-  actor->attachShape(*shape);
-  gScene->addActor(*actor);
-  gScene->flushQueryUpdates();
-  gScene->forceDynamicTreeRebuild(true, true);
-
-  GeometrySpec *geometrySpec = new GeometrySpec(meshId, meshGeom, actor, shape);
+  );
+  GeometrySpec *geometrySpec = new GeometrySpec(meshId, meshGeom, meshPose);
   geometrySpecs.insert(geometrySpec);
   return (uintptr_t)geometrySpec;
 }
 
 void doUnregisterGeometry(uintptr_t geometrySpecPtr) {
   GeometrySpec *geometrySpec = (GeometrySpec *)geometrySpecPtr;
-  gScene->removeActor(*geometrySpec->actor);
   delete geometrySpec;
   geometrySpecs.erase(geometrySpec);
 }
 
-void doRaycast(float *origin, float *direction, unsigned int &hit, float *position, float *normal, float &distance, unsigned int &meshId, unsigned int &faceIndex) {
-  PxVec3 originVec{origin[0], origin[1], origin[2]};
-  PxVec3 directionVec{direction[0], direction[1], direction[2]};
-  float maxDist = 1000.0;
-  PxRaycastBuffer hitResult;
-  bool result = gScene->raycast(originVec, directionVec, maxDist, hitResult);
-  if (result) {
-    std::cout << "got hit " << hitResult.block.position.x << " " << hitResult.block.position.y << " " << hitResult.block.position.z << std::endl;
-    hit = 1;
-    position[0] = hitResult.block.position.x;
-    position[1] = hitResult.block.position.y;
-    position[2] = hitResult.block.position.z;
-    normal[0] = hitResult.block.normal.x;
-    normal[1] = hitResult.block.normal.y;
-    normal[2] = hitResult.block.normal.z;
-    distance = hitResult.block.distance;
-    meshId = 0;
-    for (GeometrySpec *geometrySpec : geometrySpecs) {
-      if (geometrySpec->actor == hitResult.block.actor) {
-        meshId = geometrySpec->meshId;
-        break;
-      }
+void doRaycast(float *origin, float *direction, float *meshPosition, float *meshQuaternion, unsigned int &hit, float *position, float *normal, float &distance, unsigned int &meshId, unsigned int &faceIndex) {
+  for (GeometrySpec *geometrySpec : geometrySpecs) {
+    const unsigned int &meshIdData = geometrySpec->meshId;
+    PxTriangleMeshGeometry *meshGeom = geometrySpec->meshGeom;
+    // const PxTransform &meshPose = geometrySpec->meshPose;
+    PxTransform meshPose(
+      PxVec3{meshPosition[0], meshPosition[1], meshPosition[2]},
+      PxQuat{meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]}
+    );
+
+    PxVec3 originVec{origin[0], origin[1], origin[2]};
+    PxVec3 directionVec{direction[0], direction[1], direction[2]};
+    PxRaycastHit hitInfo;
+    float maxDist = 1000.0;
+    PxHitFlags hitFlags = PxHitFlag::eDEFAULT;
+    PxU32 maxHits = 1;
+    PxU32 hitCount = PxGeometryQuery::raycast(originVec, directionVec,
+                                              *meshGeom,
+                                              meshPose,
+                                              maxDist,
+                                              hitFlags,
+                                              maxHits, &hitInfo);
+
+    if (hitCount > 0) {
+      hit = 1;
+      position[0] = hitInfo.position.x;
+      position[1] = hitInfo.position.y;
+      position[2] = hitInfo.position.z;
+      normal[0] = hitInfo.normal.x;
+      normal[1] = hitInfo.normal.y;
+      normal[2] = hitInfo.normal.z;
+      distance = hitInfo.distance;
+      meshId = meshIdData;
+      faceIndex = hitInfo.faceIndex;
+      return;
     }
-    faceIndex = hitResult.block.faceIndex;
-  } else {
-    hit = 0;
   }
+  hit = 0;
 }
 
 void doCollide(float radius, float halfHeight, float *position, float *quaternion, unsigned int maxIter, unsigned int &hit, float *direction, float &depth) {
   for (GeometrySpec *geometrySpec : geometrySpecs) {
     PxTriangleMeshGeometry *meshGeom = geometrySpec->meshGeom;
-    // const PxTransform &meshPose = geometrySpec->meshPose;
-    PxTransform meshPose;
+    const PxTransform &meshPose = geometrySpec->meshPose;
 
     PxCapsuleGeometry geom(radius, halfHeight);
     PxTransform geomPose(
