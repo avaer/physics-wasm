@@ -21,13 +21,14 @@ using namespace physx;
 
 class GeometrySpec {
 public:
-  GeometrySpec(PxTriangleMeshGeometry *meshGeom, PxTransform meshPose) : meshGeom(meshGeom), meshPose(meshPose) {}
+  GeometrySpec(unsigned int meshId, PxTriangleMeshGeometry *meshGeom, PxTransform meshPose) : meshId(meshId), meshGeom(meshGeom), meshPose(meshPose) {}
   ~GeometrySpec() {
     PxTriangleMesh *triangleMesh = meshGeom->triangleMesh;
     delete meshGeom;
     triangleMesh->release();
   }
 
+  unsigned int meshId;
   PxTriangleMeshGeometry *meshGeom;
   PxTransform meshPose;
 };
@@ -50,7 +51,7 @@ void doInitPhysx() {
   cooking = PxCreateCooking(PX_PHYSICS_VERSION, *gFoundation, cookingParams);
 }
 
-uintptr_t doRegisterGeometry(float *positions, unsigned int *indices, unsigned int numPositions, unsigned int numIndices, float *meshPosition, float *meshQuaternion) {
+uintptr_t doRegisterGeometry(unsigned int meshId, float *positions, unsigned int *indices, unsigned int numPositions, unsigned int numIndices, float *meshPosition, float *meshQuaternion) {
   PxVec3 *verts = (PxVec3 *)positions;
   PxU32 nbVerts = numPositions/3;
   PxU32 *indices32 = (PxU32 *)indices;
@@ -89,7 +90,7 @@ uintptr_t doRegisterGeometry(float *positions, unsigned int *indices, unsigned i
     PxVec3{meshPosition[0], meshPosition[1], meshPosition[2]},
     PxQuat{meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]}
   );
-  GeometrySpec *geometrySpec = new GeometrySpec(meshGeom, meshPose);
+  GeometrySpec *geometrySpec = new GeometrySpec(meshId, meshGeom, meshPose);
   geometrySpecs.insert(geometrySpec);
   return (uintptr_t)geometrySpec;
 }
@@ -100,12 +101,17 @@ void doUnregisterGeometry(uintptr_t geometrySpecPtr) {
   geometrySpecs.erase(geometrySpec);
 }
 
-void doRaycast(float *origin, float *direction, unsigned int &hit, float *position, float *normal, float &distance) {
+void doRaycast(float *origin, float *direction, float *meshPosition, float *meshQuaternion, unsigned int &hit, float *position, float *normal, float &distance, unsigned int &meshId, unsigned int &faceIndex) {
   for (GeometrySpec *geometrySpec : geometrySpecs) {
+    const unsigned int &meshIdData = geometrySpec->meshId;
     PxTriangleMeshGeometry *meshGeom = geometrySpec->meshGeom;
-    const PxTransform &meshPose = geometrySpec->meshPose;
+    // const PxTransform &meshPose = geometrySpec->meshPose;
+    PxTransform meshPose(
+      PxVec3{meshPosition[0], meshPosition[1], meshPosition[2]},
+      PxQuat{meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]}
+    );
 
-    PxVec3 originVec{origin[0], origin[1], origin[3]};
+    PxVec3 originVec{origin[0], origin[1], origin[2]};
     PxVec3 directionVec{direction[0], direction[1], direction[2]};
     PxRaycastHit hitInfo;
     float maxDist = 1000.0;
@@ -127,6 +133,8 @@ void doRaycast(float *origin, float *direction, unsigned int &hit, float *positi
       normal[1] = hitInfo.normal.y;
       normal[2] = hitInfo.normal.z;
       distance = hitInfo.distance;
+      meshId = meshIdData;
+      faceIndex = hitInfo.faceIndex;
       return;
     }
   }
