@@ -3,6 +3,7 @@
 #include "geometry/PxCapsuleGeometry.h"
 #include "foundation/PxTransform.h"
  */
+#include "vector.h"
 #include "PxPhysicsVersion.h"
 #include "PxPhysics.h"
 #include "extensions/PxDefaultStreams.h"
@@ -15,13 +16,18 @@
 #include "PxQueryReport.h"
 #include "geometry/PxGeometryQuery.h"
 #include <set>
+#include <algorithm>
 #include <iostream>
 
 using namespace physx;
 
+constexpr float subparcelSize = 10;
+const float subparcelRadius = std::sqrt((subparcelSize/2.0f)*(subparcelSize/2.0f)*3.0f);
+
 class GeometrySpec {
 public:
-  GeometrySpec(unsigned int meshId, PxTriangleMeshGeometry *meshGeom, PxTransform meshPose) : meshId(meshId), meshGeom(meshGeom), meshPose(meshPose) {}
+  GeometrySpec(unsigned int meshId, PxTriangleMeshGeometry *meshGeom, Sphere boundingSphere) :
+    meshId(meshId), meshGeom(meshGeom), boundingSphere(boundingSphere) {}
   ~GeometrySpec() {
     PxTriangleMesh *triangleMesh = meshGeom->triangleMesh;
     delete meshGeom;
@@ -30,7 +36,7 @@ public:
 
   unsigned int meshId;
   PxTriangleMeshGeometry *meshGeom;
-  PxTransform meshPose;
+  Sphere boundingSphere;
 };
 
 PxDefaultAllocator *gAllocator = nullptr;
@@ -86,11 +92,8 @@ uintptr_t doRegisterGeometry(unsigned int meshId, float *positions, unsigned int
   PxDefaultMemoryInputData readBuffer(writeBuffer.getData(), writeBuffer.getSize());
   PxTriangleMesh *triangleMesh = physics->createTriangleMesh(readBuffer);
   PxTriangleMeshGeometry *meshGeom = new PxTriangleMeshGeometry(triangleMesh);
-  PxTransform meshPose(
-    PxVec3{meshPosition[0], meshPosition[1], meshPosition[2]},
-    PxQuat{meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]}
-  );
-  GeometrySpec *geometrySpec = new GeometrySpec(meshId, meshGeom, meshPose);
+  Sphere boundingSphere(meshPosition[0], meshPosition[1], meshPosition[2], subparcelRadius);
+  GeometrySpec *geometrySpec = new GeometrySpec(meshId, meshGeom, boundingSphere);
   geometrySpecs.insert(geometrySpec);
   return (uintptr_t)geometrySpec;
 }
@@ -102,21 +105,38 @@ void doUnregisterGeometry(uintptr_t geometrySpecPtr) {
 }
 
 void doRaycast(float *origin, float *direction, float *meshPosition, float *meshQuaternion, unsigned int &hit, float *position, float *normal, float &distance, unsigned int &meshId, unsigned int &faceIndex) {
+  PxVec3 originVec{origin[0], origin[1], origin[2]};
+  PxVec3 directionVec{direction[0], direction[1], direction[2]};
+  Ray ray(Vec{origin[0], origin[1], origin[2]}, Vec{direction[0], direction[1], direction[2]});
+  PxTransform meshPose(
+    PxVec3{meshPosition[0], meshPosition[1], meshPosition[2]},
+    PxQuat{meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]}
+  );
+  Matrix meshMatrix(Vec{meshPosition[0], meshPosition[1], meshPosition[2]}, Quat{meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]}, Vec{1, 1, 1});
+
+  PxRaycastHit hitInfo;
+  constexpr float maxDist = 1000.0;
+  const PxHitFlags hitFlags = PxHitFlag::eDEFAULT;
+  constexpr PxU32 maxHits = 1;
+
+  std::vector<std::pair<float, GeometrySpec *>> sortedGeometrySpecs;
+  sortedGeometrySpecs.reserve(geometrySpecs.size());
   for (GeometrySpec *geometrySpec : geometrySpecs) {
+    Sphere sphere(geometrySpec->boundingSphere.center.clone().applyMatrix(meshMatrix), geometrySpec->boundingSphere.radius);
+    if (ray.intersectsSphere(sphere)) {
+      sortedGeometrySpecs.push_back(std::pair<float, GeometrySpec *>(sphere.center.distanceTo(ray.origin), geometrySpec));
+    }
+  }
+  std::sort(sortedGeometrySpecs.begin(), sortedGeometrySpecs.end(), [](const std::pair<float, GeometrySpec *> &a, const std::pair<float, GeometrySpec *> &b) -> bool {
+    return a.first < b.first;
+  });
+  for (std::pair<float, GeometrySpec *> &p : sortedGeometrySpecs) {
+    GeometrySpec *geometrySpec = p.second;
     const unsigned int &meshIdData = geometrySpec->meshId;
     PxTriangleMeshGeometry *meshGeom = geometrySpec->meshGeom;
     // const PxTransform &meshPose = geometrySpec->meshPose;
-    PxTransform meshPose(
-      PxVec3{meshPosition[0], meshPosition[1], meshPosition[2]},
-      PxQuat{meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]}
-    );
+    // PxTransform meshPose;
 
-    PxVec3 originVec{origin[0], origin[1], origin[2]};
-    PxVec3 directionVec{direction[0], direction[1], direction[2]};
-    PxRaycastHit hitInfo;
-    float maxDist = 1000.0;
-    PxHitFlags hitFlags = PxHitFlag::eDEFAULT;
-    PxU32 maxHits = 1;
     PxU32 hitCount = PxGeometryQuery::raycast(originVec, directionVec,
                                               *meshGeom,
                                               meshPose,
@@ -135,56 +155,97 @@ void doRaycast(float *origin, float *direction, float *meshPosition, float *mesh
       distance = hitInfo.distance;
       meshId = meshIdData;
       faceIndex = hitInfo.faceIndex;
+      // std::cout << "num intersects " << numIntersects << std::endl;
       return;
     }
   }
   hit = 0;
 }
 
-void doCollide(float radius, float halfHeight, float *position, float *quaternion, unsigned int maxIter, unsigned int &hit, float *direction, float &depth) {
+void doCollide(float radius, float halfHeight, float *position, float *quaternion, float *meshPosition, float *meshQuaternion, unsigned int maxIter, unsigned int &hit, float *direction) {
+  PxCapsuleGeometry geom(radius, halfHeight);
+  PxTransform geomPose(
+    PxVec3{position[0], position[1], position[2]},
+    PxQuat{quaternion[0], quaternion[1], quaternion[2], quaternion[3]}
+  );
+  PxTransform meshPose{
+    PxVec3{meshPosition[0], meshPosition[1], meshPosition[2]},
+    PxQuat{meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]}
+  };
+
+  PxVec3 directionVec;
+  PxReal depthFloat;
+
+  Vec capsulePosition(position[0], position[1], position[2]);
+  Matrix meshMatrix(Vec{meshPosition[0], meshPosition[1], meshPosition[2]}, Quat{meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]}, Vec{1, 1, 1});
+
+  std::vector<std::pair<float, GeometrySpec *>> sortedGeometrySpecs;
+  sortedGeometrySpecs.reserve(geometrySpecs.size());
+  const float maxDistance = subparcelRadius + halfHeight + radius;
   for (GeometrySpec *geometrySpec : geometrySpecs) {
-    PxTriangleMeshGeometry *meshGeom = geometrySpec->meshGeom;
-    const PxTransform &meshPose = geometrySpec->meshPose;
-
-    PxCapsuleGeometry geom(radius, halfHeight);
-    PxTransform geomPose(
-      PxVec3{position[0], position[1], position[2]},
-      PxQuat{quaternion[0], quaternion[1], quaternion[2], quaternion[3]}
-    );
-
-    // PxU32 maxIter = 4;
-    /* PxU32 nb;
-    PxVec3 depenetrationVector = PxComputeMeshPenetration(
-      maxIter,
-      geom,
-      geomPose,
-      meshGeom,
-      meshPose,
-      nb
-    ); */
-    PxVec3 directionVec{0, 0, 0};
-    PxReal depthFloat = 0;
-    // bool result = PxGeometryQuery::computePenetration(direction, depth, geom, geomPose, meshGeom, meshPose);
-    bool result = PxComputeTriangleMeshPenetration(
-      directionVec,
-      depthFloat,
-      geom,
-      geomPose,
-      *meshGeom,
-      meshPose,
-      maxIter,
-      nullptr
-    );
-    if (result) {
-      hit = 1;
-      direction[0] = directionVec.x;
-      direction[1] = directionVec.y;
-      direction[2] = directionVec.z;
-      depth = depthFloat;
-      return;
+    Vec spherePosition = geometrySpec->boundingSphere.center.clone().applyMatrix(meshMatrix);
+    float distance = spherePosition.distanceTo(capsulePosition);
+    if (distance < maxDistance) {
+      sortedGeometrySpecs.push_back(std::pair<float, GeometrySpec *>(distance, geometrySpec));
     }
   }
-  hit = 0;
+  std::sort(sortedGeometrySpecs.begin(), sortedGeometrySpecs.end(), [](const std::pair<float, GeometrySpec *> &a, const std::pair<float, GeometrySpec *> &b) -> bool {
+    return a.first < b.first;
+  });
+  Vec offset(0, 0, 0);
+  bool anyHadHit = false;
+  for (unsigned int i = 0; i < maxIter; i++) {
+    bool hadHit = false;
+    for (const std::pair<float, GeometrySpec *> &p : sortedGeometrySpecs) {
+      GeometrySpec *geometrySpec = p.second;
+      PxTriangleMeshGeometry *meshGeom = geometrySpec->meshGeom;
+      // const PxTransform &meshPose = geometrySpec->meshPose;
+
+      // PxU32 maxIter = 4;
+      /* PxU32 nb;
+      PxVec3 depenetrationVector = PxComputeMeshPenetration(
+        maxIter,
+        geom,
+        geomPose,
+        meshGeom,
+        meshPose,
+        nb
+      ); */
+      // bool result = PxGeometryQuery::computePenetration(direction, depth, geom, geomPose, meshGeom, meshPose);
+      bool result = PxComputeTriangleMeshPenetration(
+        directionVec,
+        depthFloat,
+        geom,
+        geomPose,
+        *meshGeom,
+        meshPose,
+        1,
+        nullptr
+      );
+      if (result) {
+        hadHit = true;
+        offset = offset + Vec(directionVec.x, directionVec.y, directionVec.z)*depthFloat;
+        geomPose.p.x += directionVec.x*depthFloat;
+        geomPose.p.y += directionVec.y*depthFloat;
+        geomPose.p.z += directionVec.z*depthFloat;
+        break;
+      }
+    }
+    if (hadHit) {
+      anyHadHit = true;
+      continue;
+    } else {
+      break;
+    }
+  }
+  if (anyHadHit) {
+    hit = 1;
+    direction[0] = offset.x;
+    direction[1] = offset.y;
+    direction[2] = offset.z;
+  } else {
+    hit = 0;
+  }
 }
 
 /* void doFindOverlap() {
