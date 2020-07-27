@@ -1,5 +1,5 @@
 mkdir -p bin
-emcc --std=c++11 -s WASM=1 -O3 -s TOTAL_MEMORY=268435456 \
+emcc --std=c++11 -s WASM=1 -O3 -s TOTAL_MEMORY=33554432 \
   -IPhysX/physx/include -IPhysX/pxshared/include \
   -IPhysX/physx/source/foundation/include \
   -IPhysX/physx/source/pvd/include \
