@@ -14,9 +14,9 @@ EMSCRIPTEN_KEEPALIVE void doFree(void *ptr) {
 EMSCRIPTEN_KEEPALIVE void initPhysx() {
   doInitPhysx();
 }
-EMSCRIPTEN_KEEPALIVE void registerGeometry(unsigned int meshId, float *positions, unsigned int *indices, unsigned int numPositions, unsigned int numIndices, float *meshPosition, float *meshQuaternion, uintptr_t *result) {
+/* EMSCRIPTEN_KEEPALIVE void registerGeometry(unsigned int meshId, float *positions, unsigned int *indices, unsigned int numPositions, unsigned int numIndices, float *meshPosition, float *meshQuaternion, uintptr_t *result) {
   *result = doRegisterGeometry(meshId, positions, indices, numPositions, numIndices, meshPosition, meshQuaternion);
-}
+} */
 EMSCRIPTEN_KEEPALIVE void registerBakedGeometry(unsigned int meshId, uintptr_t data, size_t size, float *meshPosition, float *meshQuaternion, uintptr_t *result) {
   *result = doRegisterBakedGeometry(meshId, data, size, meshPosition, meshQuaternion);
 }

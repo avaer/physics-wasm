@@ -57,22 +57,11 @@ void doInitPhysx() {
   cooking = PxCreateCooking(PX_PHYSICS_VERSION, *gFoundation, cookingParams);
 }
 
-uintptr_t doRegisterGeometry(unsigned int meshId, float *positions, unsigned int *indices, unsigned int numPositions, unsigned int numIndices, float *meshPosition, float *meshQuaternion) {
+/* uintptr_t doRegisterGeometry(unsigned int meshId, float *positions, unsigned int *indices, unsigned int numPositions, unsigned int numIndices, float *meshPosition, float *meshQuaternion) {
   PxVec3 *verts = (PxVec3 *)positions;
   PxU32 nbVerts = numPositions/3;
   PxU32 *indices32 = (PxU32 *)indices;
   PxU32 triCount = numIndices/3;
-
-  /* std::vector<PxU32> indicesCache;
-  if (indices32 == nullptr) {
-    numIndices = nbVerts/3;
-    indicesCache.resize(numIndices);
-    for (unsigned int i = 0; i < numIndices; i++) {
-      indicesCache[i] = i;
-    }
-    indices32 = indicesCache.data();
-    triCount = numIndices/3;
-  } */
 
   PxTriangleMeshDesc meshDesc;
   meshDesc.points.count           = nbVerts;
@@ -96,7 +85,7 @@ uintptr_t doRegisterGeometry(unsigned int meshId, float *positions, unsigned int
   GeometrySpec *geometrySpec = new GeometrySpec(meshId, meshGeom, boundingSphere);
   geometrySpecs.insert(geometrySpec);
   return (uintptr_t)geometrySpec;
-}
+} */
 
 uintptr_t doRegisterBakedGeometry(unsigned int meshId, uintptr_t data, size_t size, float *meshPosition, float *meshQuaternion) {
   PxDefaultMemoryInputData readBuffer((PxU8 *)data, size);
@@ -113,17 +102,6 @@ void doBakeGeometry(float *positions, unsigned int *indices, unsigned int numPos
   PxU32 nbVerts = numPositions/3;
   PxU32 *indices32 = (PxU32 *)indices;
   PxU32 triCount = numIndices/3;
-
-  /* std::vector<PxU32> indicesCache;
-  if (indices32 == nullptr) {
-    numIndices = nbVerts/3;
-    indicesCache.resize(numIndices);
-    for (unsigned int i = 0; i < numIndices; i++) {
-      indicesCache[i] = i;
-    }
-    indices32 = indicesCache.data();
-    triCount = numIndices/3;
-  } */
 
   PxTriangleMeshDesc meshDesc;
   meshDesc.points.count           = nbVerts;
