@@ -184,7 +184,7 @@ void doRaycast(float *origin, float *direction, float *meshPosition, float *mesh
   const PxHitFlags hitFlags = PxHitFlag::eDEFAULT;
   constexpr PxU32 maxHits = 1;
 
-  std::vector<std::pair<float, GeometrySpec *>> sortedGeometrySpecs;
+  std::vector<GeometrySpec *> sortedGeometrySpecs;
   sortedGeometrySpecs.reserve(geometrySpecs.size());
   for (std::set<GeometrySpec *> *geometrySpecSet : geometrySpecSets) {
     for (GeometrySpec *geometrySpec : *geometrySpecSet) {
@@ -194,15 +194,16 @@ void doRaycast(float *origin, float *direction, float *meshPosition, float *mesh
         geometrySpec->boundingSphere.radius
       );
       if (ray.intersectsSphere(sphere)) {
-        sortedGeometrySpecs.push_back(std::pair<float, GeometrySpec *>(sphere.center.distanceTo(ray.origin), geometrySpec));
+        sortedGeometrySpecs.push_back(geometrySpec);
       }
     }
   }
-  std::sort(sortedGeometrySpecs.begin(), sortedGeometrySpecs.end(), [](const std::pair<float, GeometrySpec *> &a, const std::pair<float, GeometrySpec *> &b) -> bool {
+  /* std::sort(sortedGeometrySpecs.begin(), sortedGeometrySpecs.end(), [](const std::pair<float, GeometrySpec *> &a, const std::pair<float, GeometrySpec *> &b) -> bool {
     return a.first < b.first;
-  });
-  for (std::pair<float, GeometrySpec *> &p : sortedGeometrySpecs) {
-    GeometrySpec *geometrySpec = p.second;
+  }); */
+
+  hit = 0;
+  for (GeometrySpec *geometrySpec : sortedGeometrySpecs) {
     const unsigned int &meshIdData = geometrySpec->meshId;
     PxGeometry *meshGeom = geometrySpec->meshGeom;
     PxTransform meshPose2{
@@ -219,17 +220,7 @@ void doRaycast(float *origin, float *direction, float *meshPosition, float *mesh
                                               hitFlags,
                                               maxHits, &hitInfo);
 
-    if (hitCount > 0) {
-      /* if (staticGeometrySpecs.find(geometrySpec) != staticGeometrySpecs.end()) {
-        std::cout <<
-          "get poses " << originVec.x << " " << originVec.y << " " << originVec.z << " : " <<
-          hitInfo.position.x << " " << hitInfo.position.y << " " << hitInfo.position.z << " : " <<
-          meshPose.p.x << " " << meshPose.p.y << " " << meshPose.p.z << " : " <<
-          meshPose2.p.x << " " << meshPose2.p.y << " " << meshPose2.p.z << " : " <<
-          meshPose3.p.x << " " << meshPose3.p.y << " " << meshPose3.p.z << " : " <<
-          meshPose4.p.x << " " << meshPose4.p.y << " " << meshPose4.p.z << std::endl;
-      } */
-
+    if (hitCount > 0 && (!hit || hitInfo.distance < distance)) {
       hit = 1;
       position[0] = hitInfo.position.x;
       position[1] = hitInfo.position.y;
@@ -240,10 +231,8 @@ void doRaycast(float *origin, float *direction, float *meshPosition, float *mesh
       distance = hitInfo.distance;
       meshId = meshIdData;
       faceIndex = hitInfo.faceIndex;
-      return;
     }
   }
-  hit = 0;
 }
 
 void doCollide(float radius, float halfHeight, float *position, float *quaternion, float *meshPosition, float *meshQuaternion, unsigned int maxIter, unsigned int &hit, float *direction) {
