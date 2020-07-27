@@ -246,32 +246,47 @@ void doCollide(float radius, float halfHeight, float *position, float *quaternio
     PxQuat{meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]}
   };
 
-  PxVec3 directionVec;
-  PxReal depthFloat;
-
-  Vec capsulePosition(position[0], position[1], position[2]);
   Vec p(meshPosition[0], meshPosition[1], meshPosition[2]);
   Quat q(meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]);
 
-  std::vector<std::pair<float, GeometrySpec *>> sortedGeometrySpecs;
-  sortedGeometrySpecs.reserve(geometrySpecs.size());
-  for (GeometrySpec *geometrySpec : geometrySpecs) {
-    Vec spherePosition = (geometrySpec->boundingSphere.center.clone().applyQuaternion(geometrySpec->quaternion) + geometrySpec->position)
-      .applyQuaternion(q) + p;
-    float distance = spherePosition.distanceTo(capsulePosition);
-    if (distance < (geometrySpec->boundingSphere.radius + halfHeight + radius)) {
-      sortedGeometrySpecs.push_back(std::pair<float, GeometrySpec *>(distance, geometrySpec));
-    }
+  std::vector<std::tuple<bool, float, GeometrySpec *>> sortedGeometrySpecs;
+  unsigned int totalNumSpecs = 0;
+  for (std::set<GeometrySpec *> *geometrySpecSet : geometrySpecSets) {
+    totalNumSpecs += geometrySpecSet->size();
   }
-  std::sort(sortedGeometrySpecs.begin(), sortedGeometrySpecs.end(), [](const std::pair<float, GeometrySpec *> &a, const std::pair<float, GeometrySpec *> &b) -> bool {
-    return a.first < b.first;
-  });
+  sortedGeometrySpecs.reserve(totalNumSpecs);
+
   Vec offset(0, 0, 0);
   bool anyHadHit = false;
   for (unsigned int i = 0; i < maxIter; i++) {
+    Vec capsulePosition(geomPose.p.x, geomPose.p.y, geomPose.p.z);
+    sortedGeometrySpecs.clear();
+
+    for (std::set<GeometrySpec *> *geometrySpecSet : geometrySpecSets) {
+      for (GeometrySpec *geometrySpec : *geometrySpecSet) {
+        Vec spherePosition = (geometrySpec->boundingSphere.center.clone().applyQuaternion(geometrySpec->quaternion) + geometrySpec->position)
+          .applyQuaternion(q) + p;
+        float distance = spherePosition.distanceTo(capsulePosition);
+        if (distance < (geometrySpec->boundingSphere.radius + halfHeight + radius)) {
+          sortedGeometrySpecs.push_back(std::tuple<bool, float, GeometrySpec *>(geometrySpecSet == &staticGeometrySpecs, distance, geometrySpec));
+        }
+      }
+    }
+    std::sort(sortedGeometrySpecs.begin(), sortedGeometrySpecs.end(), [](const std::tuple<bool, float, GeometrySpec *> &a, const std::tuple<bool, float, GeometrySpec *> &b) -> bool {
+      const bool &aStatic = std::get<0>(a);
+      const bool &bStatic = std::get<0>(b);
+      if (aStatic != bStatic) {
+        return aStatic > bStatic;
+      } else {
+        const float &aDistance = std::get<1>(a);
+        const float &bDistance = std::get<1>(b);
+        return aDistance < bDistance;
+      }
+    });
+
     bool hadHit = false;
-    for (const std::pair<float, GeometrySpec *> &p : sortedGeometrySpecs) {
-      GeometrySpec *geometrySpec = p.second;
+    for (const std::tuple<bool, float, GeometrySpec *> &t : sortedGeometrySpecs) {
+      GeometrySpec *geometrySpec = std::get<2>(t);
       PxGeometry *meshGeom = geometrySpec->meshGeom;
       PxTransform meshPose2{
         PxVec3{geometrySpec->position.x, geometrySpec->position.y, geometrySpec->position.z},
@@ -279,8 +294,11 @@ void doCollide(float radius, float halfHeight, float *position, float *quaternio
       };
       PxTransform meshPose3 = meshPose * meshPose2;
 
+      PxVec3 directionVec;
+      PxReal depthFloat;
       bool result = PxGeometryQuery::computePenetration(directionVec, depthFloat, geom, geomPose, *meshGeom, meshPose3);
       if (result) {
+        anyHadHit = true;
         hadHit = true;
         offset += Vec(directionVec.x, directionVec.y, directionVec.z)*depthFloat;
         geomPose.p.x += directionVec.x*depthFloat;
@@ -290,7 +308,6 @@ void doCollide(float radius, float halfHeight, float *position, float *quaternio
       }
     }
     if (hadHit) {
-      anyHadHit = true;
       continue;
     } else {
       break;
