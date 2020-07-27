@@ -20,11 +20,11 @@ EMSCRIPTEN_KEEPALIVE void registerGeometry(unsigned int meshId, float *positions
 EMSCRIPTEN_KEEPALIVE void registerBakedGeometry(unsigned int meshId, uintptr_t data, size_t size, float *meshPosition, float *meshQuaternion, uintptr_t *result) {
   *result = doRegisterBakedGeometry(meshId, data, size, meshPosition, meshQuaternion);
 }
-EMSCRIPTEN_KEEPALIVE void bakeGeometry(unsigned int meshId, float *positions, unsigned int *indices, unsigned int numPositions, unsigned int numIndices, uintptr_t *ptr, uintptr_t *data, size_t *size) {
-  doBakeGeometry(meshId, positions, indices, numPositions, numIndices, *ptr, *data, *size);
+EMSCRIPTEN_KEEPALIVE void bakeGeometry(float *positions, unsigned int *indices, unsigned int numPositions, unsigned int numIndices, uintptr_t *ptr, uintptr_t *data, size_t *size) {
+  doBakeGeometry(positions, indices, numPositions, numIndices, *ptr, *data, *size);
 }
-EMSCRIPTEN_KEEPALIVE void releaseBakeGeometry(uintptr_t ptr) {
-  doReleaseBakeGeometry(ptr);
+EMSCRIPTEN_KEEPALIVE void releaseBakedGeometry(uintptr_t ptr) {
+  doReleaseBakedGeometry(ptr);
 }
 EMSCRIPTEN_KEEPALIVE void unregisterGeometry(uintptr_t geometrySpecPtr) {
   doUnregisterGeometry(geometrySpecPtr);

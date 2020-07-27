@@ -108,7 +108,7 @@ uintptr_t doRegisterBakedGeometry(unsigned int meshId, uintptr_t data, size_t si
   return (uintptr_t)geometrySpec;
 }
 
-void doBakeGeometry(unsigned int meshId, float *positions, unsigned int *indices, unsigned int numPositions, unsigned int numIndices, uintptr_t &ptr, uintptr_t &data, size_t &size) {
+void doBakeGeometry(float *positions, unsigned int *indices, unsigned int numPositions, unsigned int numIndices, uintptr_t &ptr, uintptr_t &data, size_t &size) {
   PxVec3 *verts = (PxVec3 *)positions;
   PxU32 nbVerts = numPositions/3;
   PxU32 *indices32 = (PxU32 *)indices;
@@ -148,7 +148,7 @@ void doBakeGeometry(unsigned int meshId, float *positions, unsigned int *indices
   }
 }
 
-void doReleaseBakeGeometry(uintptr_t ptr) {
+void doReleaseBakedGeometry(uintptr_t ptr) {
   PxDefaultMemoryOutputStream *writeBuffer = (PxDefaultMemoryOutputStream *)ptr;
   delete writeBuffer;
 }
