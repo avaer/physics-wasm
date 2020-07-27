@@ -26,16 +26,18 @@ const float subparcelRadius = std::sqrt((subparcelSize/2.0f)*(subparcelSize/2.0f
 
 class GeometrySpec {
 public:
-  GeometrySpec(unsigned int meshId, PxTriangleMeshGeometry *meshGeom, Sphere boundingSphere) :
-    meshId(meshId), meshGeom(meshGeom), boundingSphere(boundingSphere) {}
+  GeometrySpec(unsigned int meshId, PxTriangleMesh *triangleMesh, PxGeometry *meshGeom, Vec position, Quat quaternion, Sphere boundingSphere) :
+    meshId(meshId), triangleMesh(triangleMesh), meshGeom(meshGeom), position(position), quaternion(quaternion), boundingSphere(boundingSphere) {}
   ~GeometrySpec() {
-    PxTriangleMesh *triangleMesh = meshGeom->triangleMesh;
     delete meshGeom;
     triangleMesh->release();
   }
 
   unsigned int meshId;
-  PxTriangleMeshGeometry *meshGeom;
+  PxTriangleMesh *triangleMesh;
+  PxGeometry *meshGeom;
+  Vec position;
+  Quat quaternion;
   Sphere boundingSphere;
 };
 
@@ -57,42 +59,33 @@ void doInitPhysx() {
   cooking = PxCreateCooking(PX_PHYSICS_VERSION, *gFoundation, cookingParams);
 }
 
-/* uintptr_t doRegisterGeometry(unsigned int meshId, float *positions, unsigned int *indices, unsigned int numPositions, unsigned int numIndices, float *meshPosition, float *meshQuaternion) {
-  PxVec3 *verts = (PxVec3 *)positions;
-  PxU32 nbVerts = numPositions/3;
-  PxU32 *indices32 = (PxU32 *)indices;
-  PxU32 triCount = numIndices/3;
-
-  PxTriangleMeshDesc meshDesc;
-  meshDesc.points.count           = nbVerts;
-  meshDesc.points.stride          = sizeof(PxVec3);
-  meshDesc.points.data            = verts;
-
-  meshDesc.triangles.count        = triCount;
-  meshDesc.triangles.stride       = 3*sizeof(PxU32);
-  meshDesc.triangles.data         = indices32;
-
-  PxDefaultMemoryOutputStream writeBuffer;
-  bool status = cooking->cookTriangleMesh(meshDesc, writeBuffer);
-  if (!status) {
-    return 0;
-  }
-
-  PxDefaultMemoryInputData readBuffer(writeBuffer.getData(), writeBuffer.getSize());
-  PxTriangleMesh *triangleMesh = physics->createTriangleMesh(readBuffer);
-  PxTriangleMeshGeometry *meshGeom = new PxTriangleMeshGeometry(triangleMesh);
-  Sphere boundingSphere(meshPosition[0], meshPosition[1], meshPosition[2], subparcelRadius);
-  GeometrySpec *geometrySpec = new GeometrySpec(meshId, meshGeom, boundingSphere);
-  geometrySpecs.insert(geometrySpec);
-  return (uintptr_t)geometrySpec;
-} */
-
 uintptr_t doRegisterBakedGeometry(unsigned int meshId, uintptr_t data, size_t size, float *meshPosition, float *meshQuaternion) {
   PxDefaultMemoryInputData readBuffer((PxU8 *)data, size);
   PxTriangleMesh *triangleMesh = physics->createTriangleMesh(readBuffer);
   PxTriangleMeshGeometry *meshGeom = new PxTriangleMeshGeometry(triangleMesh);
   Sphere boundingSphere(meshPosition[0], meshPosition[1], meshPosition[2], subparcelRadius);
-  GeometrySpec *geometrySpec = new GeometrySpec(meshId, meshGeom, boundingSphere);
+  GeometrySpec *geometrySpec = new GeometrySpec(meshId, triangleMesh, meshGeom, Vec(), Quat(), boundingSphere);
+  geometrySpecs.insert(geometrySpec);
+  return (uintptr_t)geometrySpec;
+}
+
+uintptr_t doRegisterBoxGeometry(unsigned int meshId, float *position, float *quaternion, float w, float h, float d) {
+  Vec p(position[0], position[1], position[2]);
+  Quat q(quaternion[0], quaternion[1], quaternion[2], quaternion[3]);
+  Vec halfScale(w/2.0f, h/2.0f, d/2.0f);
+  PxBoxGeometry *meshGeom = new PxBoxGeometry(halfScale.x, halfScale.y, halfScale.z);
+  Sphere boundingSphere(0, 0, 0, halfScale.magnitude());
+  GeometrySpec *geometrySpec = new GeometrySpec(meshId, nullptr, meshGeom, p, q, boundingSphere);
+  geometrySpecs.insert(geometrySpec);
+  return (uintptr_t)geometrySpec;
+}
+
+uintptr_t doRegisterCapsuleGeometry(unsigned int meshId, float *position, float *quaternion, float radius, float halfHeight) {
+  Vec p(position[0], position[1], position[2]);
+  Quat q(quaternion[0], quaternion[1], quaternion[2], quaternion[3]);
+  PxCapsuleGeometry *meshGeom = new PxCapsuleGeometry(radius, halfHeight);
+  Sphere boundingSphere(0, 0, 0, radius + halfHeight);
+  GeometrySpec *geometrySpec = new GeometrySpec(meshId, nullptr, meshGeom, p, q, boundingSphere);
   geometrySpecs.insert(geometrySpec);
   return (uintptr_t)geometrySpec;
 }
@@ -126,6 +119,35 @@ void doBakeGeometry(float *positions, unsigned int *indices, unsigned int numPos
   }
 }
 
+/* void doBakeConvexGeometry(float *positions, unsigned int *indices, unsigned int numPositions, unsigned int numIndices, uintptr_t &ptr, uintptr_t &data, size_t &size) {
+  PxVec3 *verts = (PxVec3 *)positions;
+  PxU32 nbVerts = numPositions/3;
+  PxU32 *indices32 = (PxU32 *)indices;
+  PxU32 triCount = numIndices/3;
+
+  PxConvexMeshDesc meshDesc;
+  meshDesc.points.count           = nbVerts;
+  meshDesc.points.stride          = sizeof(PxVec3);
+  meshDesc.points.data            = verts;
+
+  meshDesc.triangles.count        = triCount;
+  meshDesc.triangles.stride       = 3*sizeof(PxU32);
+  meshDesc.triangles.data         = indices32;
+
+  PxDefaultMemoryOutputStream *writeBuffer = new PxDefaultMemoryOutputStream();
+  bool status = cooking->cookConvexMesh(meshDesc, *writeBuffer);
+  if (status) {
+    ptr = (uintptr_t)writeBuffer;
+    data = (uintptr_t)writeBuffer->getData();
+    size = writeBuffer->getSize();
+  } else {
+    delete writeBuffer;
+    ptr = 0;
+    data = 0;
+    size = 0;
+  }
+} */
+
 void doReleaseBakedGeometry(uintptr_t ptr) {
   PxDefaultMemoryOutputStream *writeBuffer = (PxDefaultMemoryOutputStream *)ptr;
   delete writeBuffer;
@@ -147,7 +169,6 @@ void doRaycast(float *origin, float *direction, float *meshPosition, float *mesh
   );
   Vec p(meshPosition[0], meshPosition[1], meshPosition[2]);
   Quat q(meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]);
-  // Matrix meshMatrix(p, q, Vec(1, 1, 1));
 
   PxRaycastHit hitInfo;
   constexpr float maxDist = 1000.0;
@@ -157,7 +178,11 @@ void doRaycast(float *origin, float *direction, float *meshPosition, float *mesh
   std::vector<std::pair<float, GeometrySpec *>> sortedGeometrySpecs;
   sortedGeometrySpecs.reserve(geometrySpecs.size());
   for (GeometrySpec *geometrySpec : geometrySpecs) {
-    Sphere sphere(geometrySpec->boundingSphere.center.clone().applyQuaternion(q) + p, geometrySpec->boundingSphere.radius);
+    Sphere sphere(
+      (geometrySpec->boundingSphere.center.clone().applyQuaternion(geometrySpec->quaternion) + geometrySpec->position)
+        .applyQuaternion(q) + p,
+      geometrySpec->boundingSphere.radius
+    );
     if (ray.intersectsSphere(sphere)) {
       sortedGeometrySpecs.push_back(std::pair<float, GeometrySpec *>(sphere.center.distanceTo(ray.origin), geometrySpec));
     }
@@ -168,13 +193,16 @@ void doRaycast(float *origin, float *direction, float *meshPosition, float *mesh
   for (std::pair<float, GeometrySpec *> &p : sortedGeometrySpecs) {
     GeometrySpec *geometrySpec = p.second;
     const unsigned int &meshIdData = geometrySpec->meshId;
-    PxTriangleMeshGeometry *meshGeom = geometrySpec->meshGeom;
-    // const PxTransform &meshPose = geometrySpec->meshPose;
-    // PxTransform meshPose;
+    PxGeometry *meshGeom = geometrySpec->meshGeom;
+    PxTransform meshPose2{
+      PxVec3{geometrySpec->position.x, geometrySpec->position.y, geometrySpec->position.z},
+      PxQuat{geometrySpec->quaternion.x, geometrySpec->quaternion.x, geometrySpec->quaternion.z, geometrySpec->quaternion.w}
+    };
+    PxTransform meshPose3 = meshPose * meshPose2;
 
     PxU32 hitCount = PxGeometryQuery::raycast(originVec, directionVec,
                                               *meshGeom,
-                                              meshPose,
+                                              meshPose3,
                                               maxDist,
                                               hitFlags,
                                               maxHits, &hitInfo);
@@ -190,7 +218,6 @@ void doRaycast(float *origin, float *direction, float *meshPosition, float *mesh
       distance = hitInfo.distance;
       meshId = meshIdData;
       faceIndex = hitInfo.faceIndex;
-      // std::cout << "num intersects " << numIntersects << std::endl;
       return;
     }
   }
@@ -214,13 +241,13 @@ void doCollide(float radius, float halfHeight, float *position, float *quaternio
   Vec capsulePosition(position[0], position[1], position[2]);
   Vec p(meshPosition[0], meshPosition[1], meshPosition[2]);
   Quat q(meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]);
-  // Matrix meshMatrix(Vec{meshPosition[0], meshPosition[1], meshPosition[2]}, Quat{meshQuaternion[0], meshQuaternion[1], meshQuaternion[2], meshQuaternion[3]}, Vec{1, 1, 1});
 
   std::vector<std::pair<float, GeometrySpec *>> sortedGeometrySpecs;
   sortedGeometrySpecs.reserve(geometrySpecs.size());
   const float maxDistance = subparcelRadius + halfHeight + radius;
   for (GeometrySpec *geometrySpec : geometrySpecs) {
-    Vec spherePosition = geometrySpec->boundingSphere.center.clone().applyQuaternion(q) + p;
+    Vec spherePosition = (geometrySpec->boundingSphere.center.clone().applyQuaternion(geometrySpec->quaternion) + geometrySpec->position)
+      .applyQuaternion(q) + p;
     float distance = spherePosition.distanceTo(capsulePosition);
     if (distance < maxDistance) {
       sortedGeometrySpecs.push_back(std::pair<float, GeometrySpec *>(distance, geometrySpec));
@@ -235,21 +262,15 @@ void doCollide(float radius, float halfHeight, float *position, float *quaternio
     bool hadHit = false;
     for (const std::pair<float, GeometrySpec *> &p : sortedGeometrySpecs) {
       GeometrySpec *geometrySpec = p.second;
-      PxTriangleMeshGeometry *meshGeom = geometrySpec->meshGeom;
-      // const PxTransform &meshPose = geometrySpec->meshPose;
+      PxGeometry *meshGeom = geometrySpec->meshGeom;
+      PxTransform meshPose2{
+        PxVec3{geometrySpec->position.x, geometrySpec->position.y, geometrySpec->position.z},
+        PxQuat{geometrySpec->quaternion.x, geometrySpec->quaternion.x, geometrySpec->quaternion.z, geometrySpec->quaternion.w}
+      };
+      PxTransform meshPose3 = meshPose * meshPose2;
 
-      // PxU32 maxIter = 4;
-      /* PxU32 nb;
-      PxVec3 depenetrationVector = PxComputeMeshPenetration(
-        maxIter,
-        geom,
-        geomPose,
-        meshGeom,
-        meshPose,
-        nb
-      ); */
-      // bool result = PxGeometryQuery::computePenetration(direction, depth, geom, geomPose, meshGeom, meshPose);
-      bool result = PxComputeTriangleMeshPenetration(
+      bool result = PxGeometryQuery::computePenetration(directionVec, depthFloat, geom, geomPose, *meshGeom, meshPose3);
+      /* bool result = PxComputeTriangleMeshPenetration(
         directionVec,
         depthFloat,
         geom,
@@ -258,7 +279,7 @@ void doCollide(float radius, float halfHeight, float *position, float *quaternio
         meshPose,
         1,
         nullptr
-      );
+      ); */
       if (result) {
         hadHit = true;
         offset += Vec(directionVec.x, directionVec.y, directionVec.z)*depthFloat;
@@ -284,94 +305,3 @@ void doCollide(float radius, float halfHeight, float *position, float *quaternio
     hit = 0;
   }
 }
-
-/* void doFindOverlap() {
-  std::cout << "overlap 1" << std::endl;
-  PxCapsuleGeometry geom(
-    1, // radius
-    1 // halfHeight
-  );
-  PxTransform geomPose;
-
-  std::cout << "overlap 2" << std::endl;
-
-  PxTriangleMesh *triangleMesh;
-  // {
-    PxVec3 verts[] = {
-      {-1, -0.5, -1},
-      {1, -0.5, -1},
-      {0, -0.5, 1},
-    };
-    PxU32 nbVerts = sizeof(verts)/sizeof(verts[0]);
-    PxU32 indices32[] = {0, 2, 1};
-    PxU32 triCount = sizeof(indices32)/sizeof(indices32[0])/3;
-
-    std::cout << "overlap 3 " << nbVerts << " " << triCount << std::endl;
-
-    PxTriangleMeshDesc meshDesc;
-    meshDesc.points.count           = nbVerts;
-    meshDesc.points.stride          = sizeof(PxVec3);
-    meshDesc.points.data            = verts;
-
-    meshDesc.triangles.count        = triCount;
-    meshDesc.triangles.stride       = 3*sizeof(PxU32);
-    meshDesc.triangles.data         = indices32;
-
-    PxDefaultMemoryOutputStream writeBuffer;
-    bool status = cooking->cookTriangleMesh(meshDesc, writeBuffer);
-    if (!status) {
-      std::cerr << "cooking failed" << std::endl;
-      return;
-    }
-
-    PxDefaultMemoryInputData readBuffer(writeBuffer.getData(), writeBuffer.getSize());
-    triangleMesh = physics->createTriangleMesh(readBuffer);
-  // }
-
-  std::cout << "overlap 4 " << (void *)triangleMesh << " " << writeBuffer.getSize() << std::endl;
-
-  PxTriangleMeshGeometry meshGeom(triangleMesh);
-  PxTransform meshPose;
-  PxU32 maxIter = 4;
-  std::cout << "overlap 5" << std::endl;
-  PxVec3 direction{0, 0, 0};
-  PxReal depth = 0;
-  // bool result = PxGeometryQuery::computePenetration(direction, depth, geom, geomPose, meshGeom, meshPose);
-  bool result = PxComputeTriangleMeshPenetration(
-    direction,
-    depth,
-    geom,
-    geomPose,
-    meshGeom,
-    meshPose,
-    maxIter,
-    nullptr
-  );
-  std::cout << "got result " << result << " " << direction.x << " " << direction.y << " " << direction.z << " " << depth << std::endl;
-
-  PxVec3 origin{0, 2, 0};
-  PxVec3 unitDir{0, -1, 0};
-  PxRaycastHit hitInfo;
-  float maxDist = 1000.0;
-  PxHitFlags hitFlags = PxHitFlag::eDEFAULT;
-  PxU32 maxHits = 1;
-  PxU32 hitCount = PxGeometryQuery::raycast(origin, unitDir,
-                                            meshGeom,
-                                            meshPose,
-                                            maxDist,
-                                            hitFlags,
-                                            maxHits, &hitInfo);
-  std::cout << "raycast result 1 " << hitCount << " " << hitInfo.position.x << " " << hitInfo.position.y << " " << hitInfo.position.z << " " << hitInfo.distance << std::endl;
-
-  origin = PxVec3{0, -2, 0};
-  unitDir = PxVec3{0, 1, 0};
-  hitCount = PxGeometryQuery::raycast(origin, unitDir,
-                                            meshGeom,
-                                            meshPose,
-                                            maxDist,
-                                            hitFlags,
-                                            maxHits, &hitInfo);
-  std::cout << "raycast result 2 " << hitCount << " " << hitInfo.position.x << " " << hitInfo.position.y << " " << hitInfo.position.z << " " << hitInfo.distance << std::endl;
-
-  std::cout << "overlap 6" << std::endl;
-} */

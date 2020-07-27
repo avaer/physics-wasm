@@ -14,11 +14,14 @@ EMSCRIPTEN_KEEPALIVE void doFree(void *ptr) {
 EMSCRIPTEN_KEEPALIVE void initPhysx() {
   doInitPhysx();
 }
-/* EMSCRIPTEN_KEEPALIVE void registerGeometry(unsigned int meshId, float *positions, unsigned int *indices, unsigned int numPositions, unsigned int numIndices, float *meshPosition, float *meshQuaternion, uintptr_t *result) {
-  *result = doRegisterGeometry(meshId, positions, indices, numPositions, numIndices, meshPosition, meshQuaternion);
-} */
 EMSCRIPTEN_KEEPALIVE void registerBakedGeometry(unsigned int meshId, uintptr_t data, size_t size, float *meshPosition, float *meshQuaternion, uintptr_t *result) {
   *result = doRegisterBakedGeometry(meshId, data, size, meshPosition, meshQuaternion);
+}
+EMSCRIPTEN_KEEPALIVE void registerBoxGeometry(unsigned int meshId, float *position, float *quaternion, float w, float h, float d, uintptr_t *result) {
+  *result = doRegisterBoxGeometry(meshId, position, quaternion, w, h, d);
+}
+EMSCRIPTEN_KEEPALIVE void registerCapsuleGeometry(unsigned int meshId, float *position, float *quaternion, float radius, float halfHeight, uintptr_t *result) {
+  *result = doRegisterCapsuleGeometry(meshId, position, quaternion, radius, halfHeight);
 }
 EMSCRIPTEN_KEEPALIVE void bakeGeometry(float *positions, unsigned int *indices, unsigned int numPositions, unsigned int numIndices, uintptr_t *ptr, uintptr_t *data, size_t *size) {
   doBakeGeometry(positions, indices, numPositions, numIndices, *ptr, *data, *size);
