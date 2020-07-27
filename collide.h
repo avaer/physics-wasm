@@ -30,7 +30,9 @@ public:
     meshId(meshId), triangleMesh(triangleMesh), meshGeom(meshGeom), position(position), quaternion(quaternion), boundingSphere(boundingSphere) {}
   ~GeometrySpec() {
     delete meshGeom;
-    triangleMesh->release();
+    if (triangleMesh) {
+      triangleMesh->release();
+    }
   }
 
   unsigned int meshId;
@@ -47,6 +49,11 @@ PxFoundation *gFoundation = nullptr;
 PxPhysics *physics = nullptr;
 PxCooking *cooking = nullptr;
 std::set<GeometrySpec *> geometrySpecs;
+std::set<GeometrySpec *> staticGeometrySpecs;
+std::vector<std::set<GeometrySpec *> *> geometrySpecSets{
+  &staticGeometrySpecs,
+  &geometrySpecs,
+};
 
 void doInitPhysx() {
   gAllocator = new PxDefaultAllocator();
@@ -76,7 +83,7 @@ uintptr_t doRegisterBoxGeometry(unsigned int meshId, float *position, float *qua
   PxBoxGeometry *meshGeom = new PxBoxGeometry(halfScale.x, halfScale.y, halfScale.z);
   Sphere boundingSphere(0, 0, 0, halfScale.magnitude());
   GeometrySpec *geometrySpec = new GeometrySpec(meshId, nullptr, meshGeom, p, q, boundingSphere);
-  geometrySpecs.insert(geometrySpec);
+  staticGeometrySpecs.insert(geometrySpec);
   return (uintptr_t)geometrySpec;
 }
 
@@ -86,7 +93,7 @@ uintptr_t doRegisterCapsuleGeometry(unsigned int meshId, float *position, float 
   PxCapsuleGeometry *meshGeom = new PxCapsuleGeometry(radius, halfHeight);
   Sphere boundingSphere(0, 0, 0, radius + halfHeight);
   GeometrySpec *geometrySpec = new GeometrySpec(meshId, nullptr, meshGeom, p, q, boundingSphere);
-  geometrySpecs.insert(geometrySpec);
+  staticGeometrySpecs.insert(geometrySpec);
   return (uintptr_t)geometrySpec;
 }
 
@@ -156,7 +163,9 @@ void doReleaseBakedGeometry(uintptr_t ptr) {
 void doUnregisterGeometry(uintptr_t geometrySpecPtr) {
   GeometrySpec *geometrySpec = (GeometrySpec *)geometrySpecPtr;
   delete geometrySpec;
-  geometrySpecs.erase(geometrySpec);
+  for (std::set<GeometrySpec *> *geometrySpecSet : geometrySpecSets) {
+    geometrySpecSet->erase(geometrySpec);
+  }
 }
 
 void doRaycast(float *origin, float *direction, float *meshPosition, float *meshQuaternion, unsigned int &hit, float *position, float *normal, float &distance, unsigned int &meshId, unsigned int &faceIndex) {
@@ -177,14 +186,16 @@ void doRaycast(float *origin, float *direction, float *meshPosition, float *mesh
 
   std::vector<std::pair<float, GeometrySpec *>> sortedGeometrySpecs;
   sortedGeometrySpecs.reserve(geometrySpecs.size());
-  for (GeometrySpec *geometrySpec : geometrySpecs) {
-    Sphere sphere(
-      (geometrySpec->boundingSphere.center.clone().applyQuaternion(geometrySpec->quaternion) + geometrySpec->position)
-        .applyQuaternion(q) + p,
-      geometrySpec->boundingSphere.radius
-    );
-    if (ray.intersectsSphere(sphere)) {
-      sortedGeometrySpecs.push_back(std::pair<float, GeometrySpec *>(sphere.center.distanceTo(ray.origin), geometrySpec));
+  for (std::set<GeometrySpec *> *geometrySpecSet : geometrySpecSets) {
+    for (GeometrySpec *geometrySpec : *geometrySpecSet) {
+      Sphere sphere(
+        (geometrySpec->boundingSphere.center.clone().applyQuaternion(geometrySpec->quaternion) + geometrySpec->position)
+          .applyQuaternion(q) + p,
+        geometrySpec->boundingSphere.radius
+      );
+      if (ray.intersectsSphere(sphere)) {
+        sortedGeometrySpecs.push_back(std::pair<float, GeometrySpec *>(sphere.center.distanceTo(ray.origin), geometrySpec));
+      }
     }
   }
   std::sort(sortedGeometrySpecs.begin(), sortedGeometrySpecs.end(), [](const std::pair<float, GeometrySpec *> &a, const std::pair<float, GeometrySpec *> &b) -> bool {
@@ -196,9 +207,10 @@ void doRaycast(float *origin, float *direction, float *meshPosition, float *mesh
     PxGeometry *meshGeom = geometrySpec->meshGeom;
     PxTransform meshPose2{
       PxVec3{geometrySpec->position.x, geometrySpec->position.y, geometrySpec->position.z},
-      PxQuat{geometrySpec->quaternion.x, geometrySpec->quaternion.x, geometrySpec->quaternion.z, geometrySpec->quaternion.w}
+      PxQuat{geometrySpec->quaternion.x, geometrySpec->quaternion.y, geometrySpec->quaternion.z, geometrySpec->quaternion.w}
     };
     PxTransform meshPose3 = meshPose * meshPose2;
+    PxTransform meshPose4 = meshPose2 * meshPose;
 
     PxU32 hitCount = PxGeometryQuery::raycast(originVec, directionVec,
                                               *meshGeom,
@@ -208,6 +220,16 @@ void doRaycast(float *origin, float *direction, float *meshPosition, float *mesh
                                               maxHits, &hitInfo);
 
     if (hitCount > 0) {
+      /* if (staticGeometrySpecs.find(geometrySpec) != staticGeometrySpecs.end()) {
+        std::cout <<
+          "get poses " << originVec.x << " " << originVec.y << " " << originVec.z << " : " <<
+          hitInfo.position.x << " " << hitInfo.position.y << " " << hitInfo.position.z << " : " <<
+          meshPose.p.x << " " << meshPose.p.y << " " << meshPose.p.z << " : " <<
+          meshPose2.p.x << " " << meshPose2.p.y << " " << meshPose2.p.z << " : " <<
+          meshPose3.p.x << " " << meshPose3.p.y << " " << meshPose3.p.z << " : " <<
+          meshPose4.p.x << " " << meshPose4.p.y << " " << meshPose4.p.z << std::endl;
+      } */
+
       hit = 1;
       position[0] = hitInfo.position.x;
       position[1] = hitInfo.position.y;
@@ -265,21 +287,11 @@ void doCollide(float radius, float halfHeight, float *position, float *quaternio
       PxGeometry *meshGeom = geometrySpec->meshGeom;
       PxTransform meshPose2{
         PxVec3{geometrySpec->position.x, geometrySpec->position.y, geometrySpec->position.z},
-        PxQuat{geometrySpec->quaternion.x, geometrySpec->quaternion.x, geometrySpec->quaternion.z, geometrySpec->quaternion.w}
+        PxQuat{geometrySpec->quaternion.x, geometrySpec->quaternion.y, geometrySpec->quaternion.z, geometrySpec->quaternion.w}
       };
       PxTransform meshPose3 = meshPose * meshPose2;
 
       bool result = PxGeometryQuery::computePenetration(directionVec, depthFloat, geom, geomPose, *meshGeom, meshPose3);
-      /* bool result = PxComputeTriangleMeshPenetration(
-        directionVec,
-        depthFloat,
-        geom,
-        geomPose,
-        *meshGeom,
-        meshPose,
-        1,
-        nullptr
-      ); */
       if (result) {
         hadHit = true;
         offset += Vec(directionVec.x, directionVec.y, directionVec.z)*depthFloat;
