@@ -255,12 +255,11 @@ void doCollide(float radius, float halfHeight, float *position, float *quaternio
 
   std::vector<std::pair<float, GeometrySpec *>> sortedGeometrySpecs;
   sortedGeometrySpecs.reserve(geometrySpecs.size());
-  const float maxDistance = subparcelRadius + halfHeight + radius;
   for (GeometrySpec *geometrySpec : geometrySpecs) {
     Vec spherePosition = (geometrySpec->boundingSphere.center.clone().applyQuaternion(geometrySpec->quaternion) + geometrySpec->position)
       .applyQuaternion(q) + p;
     float distance = spherePosition.distanceTo(capsulePosition);
-    if (distance < maxDistance) {
+    if (distance < (geometrySpec->boundingSphere.radius + halfHeight + radius)) {
       sortedGeometrySpecs.push_back(std::pair<float, GeometrySpec *>(distance, geometrySpec));
     }
   }
