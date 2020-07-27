@@ -96,7 +96,7 @@ class Quat {
       x = 0;
       y = 0;
       z = 0;
-      w = 0;
+      w = 1;
     }
 
     Quat(float ax, float ay, float az, float aw) {
