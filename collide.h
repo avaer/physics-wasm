@@ -235,7 +235,7 @@ void doRaycast(float *origin, float *direction, float *meshPosition, float *mesh
   }
 }
 
-void doCollide(float radius, float halfHeight, float *position, float *quaternion, float *meshPosition, float *meshQuaternion, unsigned int maxIter, unsigned int &hit, float *direction) {
+void doCollide(float radius, float halfHeight, float *position, float *quaternion, float *meshPosition, float *meshQuaternion, unsigned int maxIter, unsigned int &hit, float *direction, unsigned int &grounded) {
   PxCapsuleGeometry geom(radius, halfHeight);
   PxTransform geomPose(
     PxVec3{position[0], position[1], position[2]},
@@ -258,6 +258,7 @@ void doCollide(float radius, float halfHeight, float *position, float *quaternio
 
   Vec offset(0, 0, 0);
   bool anyHadHit = false;
+  bool anyHadGrounded = false;
   for (unsigned int i = 0; i < maxIter; i++) {
     Vec capsulePosition(geomPose.p.x, geomPose.p.y, geomPose.p.z);
     sortedGeometrySpecs.clear();
@@ -304,7 +305,8 @@ void doCollide(float radius, float halfHeight, float *position, float *quaternio
         geomPose.p.x += directionVec.x*depthFloat;
         geomPose.p.y += directionVec.y*depthFloat;
         geomPose.p.z += directionVec.z*depthFloat;
-        break;
+        anyHadGrounded = anyHadGrounded || directionVec.y > 0;
+        // break;
       }
     }
     if (hadHit) {
@@ -318,6 +320,7 @@ void doCollide(float radius, float halfHeight, float *position, float *quaternio
     direction[0] = offset.x;
     direction[1] = offset.y;
     direction[2] = offset.z;
+    grounded = +anyHadGrounded;
   } else {
     hit = 0;
   }
