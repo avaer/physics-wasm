@@ -384,7 +384,6 @@ PeekDirection PEEK_DIRECTIONS[6] = {
   {{0, 1, 0}, {0, 1, 0}, PEEK_FACES::TOP},
   {{0, -1, 0}, {0, -1, 0}, PEEK_FACES::BOTTOM},
 };
-
 constexpr int SUBPARCEL_SIZE = 10;
 
 int abs(int n) {
@@ -484,7 +483,7 @@ void doCull(Culler *culler, float *positionData, float *matrixData, float slabRa
   std::set<GroupSet *> seenQueue;
   for (int i = 0; i < frustumGroupSets.size(); i++) {
     GroupSet *groupSet = frustumGroupSets[i];
-    if (groupSet->boundingSphere.center.distanceTo(position) < slabRadius*2) {
+    if (groupSet->boundingSphere.center.distanceTo(position) < slabRadius*2.0f) {
       queue.push_back(groupSet);
       seenQueue.insert(groupSet);
     }
