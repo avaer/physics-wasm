@@ -29,6 +29,7 @@ emcc --std=c++11 -s WASM=1 -O3 -s TOTAL_MEMORY=33554432 \
   -IPhysX/physx/source/geomutils/src/sweep \
   -DNDEBUG -DPX_SIMD_DISABLED -DPX_EMSCRIPTEN=1 -DPX_COOKING \
   objectize.cc \
+  vector.cc \
   PhysX/physx/source/geomutils/src/GuGeometryQuery.cpp \
   PhysX/physx/source/geomutils/src/GuMTD.cpp \
   PhysX/physx/source/common/src/CmMathUtils.cpp \
