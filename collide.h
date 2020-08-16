@@ -504,9 +504,10 @@ void doCull(Culler *culler, float *positionData, float *matrixData, float slabRa
 
     for (const PeekDirection &enterPeekDirection : PEEK_DIRECTIONS) {
       const Vec &enterNormal = enterPeekDirection.normal;
+      const int *enterINormal = enterPeekDirection.inormal;
       const PEEK_FACES &enterFace = enterPeekDirection.face;
       const Vec direction = groupSet->boundingSphere.center
-        + (enterNormal * slabRadius)
+        + (enterNormal * (float)SUBPARCEL_SIZE/2.0f)
         - position;
       if (direction.dot(enterNormal) <= 0) {
         for (const PeekDirection &exitPeekDirection : PEEK_DIRECTIONS) {
@@ -514,7 +515,7 @@ void doCull(Culler *culler, float *positionData, float *matrixData, float slabRa
           const PEEK_FACES &exitFace = exitPeekDirection.face;
           const int *exitINormal = exitPeekDirection.inormal;
           const Vec direction = groupSet->boundingSphere.center
-            + (exitNormal * slabRadius)
+            + (exitNormal * (float)SUBPARCEL_SIZE/2.0f)
             - position;
           if (direction.dot(exitNormal) >= 0 && groupSet->peeks[PEEK_FACE_INDICES[(int)enterFace << 4 | (int)exitFace]]) {
             int index = getSubparcelIndex(groupSet->x + exitINormal[0], groupSet->y + exitINormal[1], groupSet->z + exitINormal[2]);
