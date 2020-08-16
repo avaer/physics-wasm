@@ -385,6 +385,8 @@ PeekDirection PEEK_DIRECTIONS[6] = {
   {{0, -1, 0}, {0, -1, 0}, PEEK_FACES::BOTTOM},
 };
 
+constexpr int SUBPARCEL_SIZE = 10;
+
 int abs(int n) {
   return (n ^ (n >> 31)) - (n >> 31);
 }
@@ -446,7 +448,7 @@ GroupSet *doRegisterGroupSet(Culler *culler, int x, int y, int z, float r, unsig
     y,
     z,
     getSubparcelIndex(x, y, z),
-    Sphere(x*r*2.0f + r, y*r*2.0f + r, z*r*2.0f + r, r),
+    Sphere(x*SUBPARCEL_SIZE + SUBPARCEL_SIZE/2, y*SUBPARCEL_SIZE + SUBPARCEL_SIZE/2, z*SUBPARCEL_SIZE + SUBPARCEL_SIZE/2, r),
     peeks,
     groups,
     numGroups
