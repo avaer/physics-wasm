@@ -39,4 +39,17 @@ EMSCRIPTEN_KEEPALIVE void collide(float radius, float halfHeight, float *positio
   doCollide(radius, halfHeight, position, quaternion, meshPosition, meshQuaternion, maxIter, *hit, direction, *grounded);
 }
 
+EMSCRIPTEN_KEEPALIVE void *makeCuller() {
+  return doMakeCuller();
+}
+EMSCRIPTEN_KEEPALIVE GroupSet *registerGroupSet(Culler *culler, int x, int y, int z, float r, unsigned char *peeks, Group *groups, unsigned int numGroups) {
+  return doRegisterGroupSet(culler, x, y, z, r, peeks, groups, numGroups);
+}
+EMSCRIPTEN_KEEPALIVE void unregisterGroupSet(Culler *culler, GroupSet *groupSet) {
+  doUnregisterGroupSet(culler, groupSet);
+}
+EMSCRIPTEN_KEEPALIVE void cull(Culler *culler, float *positionData, float *matrixData, float slabRadius, CullResult *cullResults, unsigned int *numCullResults) {
+  doCull(culler, positionData, matrixData, slabRadius, cullResults, *numCullResults);
+}
+
 }

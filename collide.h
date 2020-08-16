@@ -16,6 +16,7 @@
 #include "PxQueryReport.h"
 #include "geometry/PxGeometryQuery.h"
 #include <set>
+#include <deque>
 #include <algorithm>
 #include <iostream>
 
@@ -324,4 +325,214 @@ void doCollide(float radius, float halfHeight, float *position, float *quaternio
   } else {
     hit = 0;
   }
+}
+
+enum class PEEK_FACES : int {
+  FRONT = 1,
+  BACK,
+  LEFT,
+  RIGHT,
+  TOP,
+  BOTTOM,
+};
+int PEEK_FACE_INDICES[] = {255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,0,1,2,3,4,255,255,255,255,255,255,255,255,255,255,0,255,5,6,7,8,255,255,255,255,255,255,255,255,255,255,1,5,255,9,10,11,255,255,255,255,255,255,255,255,255,255,2,6,9,255,12,13,255,255,255,255,255,255,255,255,255,255,3,7,10,12,255,14,255,255,255,255,255,255,255,255,255,255,4,8,11,13,14,255};
+/* (() => {
+  const directionsLookup = {
+    1: 'FRONT',
+    2: 'BACK',
+    3: 'LEFT',
+    4: 'RIGHT',
+    5: 'TOP',
+    6: 'BOTTOM',
+  };
+  const indexDirections = [];
+
+  const PEEK_FACE_INDICES = Array((6<<4|6)+1);
+
+  for (let i = 0; i < (6<<4|6)+1; i++) {
+    PEEK_FACE_INDICES[i] = 0xFF;
+  }
+
+  let peekIndex = 0;
+  for (let i = 1; i <= 6; i++) {
+    for (let j = 1; j <= 6; j++) {
+      if (i != j) {
+        const otherEntry = PEEK_FACE_INDICES[j << 4 | i];
+        PEEK_FACE_INDICES[i << 4 | j] = otherEntry != 0xFF ? otherEntry : (() => {
+          const newIndex = peekIndex++;
+          indexDirections[newIndex] = directionsLookup[i] + ' -> ' + directionsLookup[j];
+          return newIndex;
+        })();
+      }
+    }
+  }
+
+  x = PEEK_FACE_INDICES;
+  y = indexDirections;
+})(); */
+class PeekDirection {
+public:
+  Vec normal;
+  int inormal[3];
+  PEEK_FACES face;
+};
+PeekDirection PEEK_DIRECTIONS[6] = {
+  {{0, 0, 1}, {0, 0, 1}, PEEK_FACES::FRONT},
+  {{0, 0, -1}, {0, 0, -1}, PEEK_FACES::BACK},
+  {{-1, 0, 0}, {-1, 0, 0}, PEEK_FACES::LEFT},
+  {{1, 0, 0}, {1, 0, 0}, PEEK_FACES::RIGHT},
+  {{0, 1, 0}, {0, 1, 0}, PEEK_FACES::TOP},
+  {{0, -1, 0}, {0, -1, 0}, PEEK_FACES::BOTTOM},
+};
+
+int abs(int n) {
+  return (n ^ (n >> 31)) - (n >> 31);
+}
+int sign(int n) {
+  return -(n >> 31);
+}
+int getSubparcelIndex(int x, int y, int z) {
+  return abs(x)|(abs(y)<<9)|(abs(z)<<18)|(sign(x)<<27)|(sign(y)<<28)|(sign(z)<<29);
+}
+
+class Group {
+public:
+  unsigned int start;
+  unsigned int count;
+  unsigned int materialIndex;
+};
+class GroupSet {
+public:
+  GroupSet(int x, int y, int z, int index, const Sphere &boundingSphere, unsigned char *peeks, Group *groups, unsigned int numGroups) :
+    x(x), y(y), z(z), index(index), boundingSphere(boundingSphere)
+  {
+    memcpy(this->peeks, peeks, 15);
+    this->groups.reserve(numGroups);
+    for (unsigned int i = 0; i < numGroups; i++) {
+      this->groups.push_back(groups[i]);
+    }
+  }
+
+  int x;
+  int y;
+  int z;
+  int index;
+  Sphere boundingSphere;
+  unsigned char peeks[15];
+  std::vector<Group> groups;
+};
+class Culler {
+public:
+  Culler() {
+    groupSets.reserve(512);
+  }
+  std::vector<GroupSet *> groupSets;
+};
+class CullResult {
+public:
+  CullResult(unsigned int start, unsigned int count, unsigned int materialIndex) : start(start), count(count), materialIndex(materialIndex) {}
+
+  unsigned int start;
+  unsigned int count;
+  unsigned int materialIndex;
+};
+
+Culler *doMakeCuller() {
+  return new Culler();
+}
+GroupSet *doRegisterGroupSet(Culler *culler, int x, int y, int z, float r, unsigned char *peeks, Group *groups, unsigned int numGroups) {
+  GroupSet *groupSet = new GroupSet(
+    x,
+    y,
+    z,
+    getSubparcelIndex(x, y, z),
+    Sphere(x*r*2.0f + r, y*r*2.0f + r, z*r*2.0f + r, r),
+    peeks,
+    groups,
+    numGroups
+  );
+  culler->groupSets.push_back(groupSet);
+  return groupSet;
+}
+void doUnregisterGroupSet(Culler *culler, GroupSet *groupSet) {
+  auto groupSetIter = std::find(culler->groupSets.begin(), culler->groupSets.end(), groupSet);
+  culler->groupSets.erase(groupSetIter);
+  delete groupSet;
+}
+void doCull(Culler *culler, float *positionData, float *matrixData, float slabRadius, CullResult *cullResults, unsigned int &numCullResults) {
+  Vec position(positionData[0], positionData[1], positionData[2]);
+  Frustum frustum;
+  frustum.setFromMatrix(matrixData);
+  std::vector<GroupSet *> &groupSets = culler->groupSets;
+
+  // frustum cull
+  std::vector<GroupSet *> frustumGroupSets;
+  frustumGroupSets.reserve(groupSets.size());
+  for (int i = 0; i < groupSets.size(); i++) {
+    if (frustum.intersectsSphere(groupSets[i]->boundingSphere)) {
+      frustumGroupSets.push_back(groupSets[i]);
+    }
+  }
+  std::sort(frustumGroupSets.begin(), frustumGroupSets.end(), [&](GroupSet *a, GroupSet *b) -> bool {
+    return a->boundingSphere.center.distanceTo(position) < b->boundingSphere.center.distanceTo(position);
+  });
+
+  // intialize queue
+  std::deque<GroupSet *> queue;
+  std::set<GroupSet *> seenQueue;
+  for (int i = 0; i < frustumGroupSets.size(); i++) {
+    GroupSet *groupSet = frustumGroupSets[i];
+    if (groupSet->boundingSphere.center.distanceTo(position) < slabRadius*2) {
+      queue.push_back(groupSet);
+      seenQueue.insert(groupSet);
+    }
+  }
+
+  // run queue
+  numCullResults = 0;
+  while (queue.size() > 0) {
+    GroupSet *groupSet = queue.front();
+    queue.pop_front();
+
+    for (const Group &group : groupSet->groups) {
+      CullResult &cullResult = cullResults[numCullResults++];
+      cullResult.start = group.start;
+      cullResult.count = group.count;
+      cullResult.materialIndex = group.materialIndex;
+    }
+
+    for (const PeekDirection &enterPeekDirection : PEEK_DIRECTIONS) {
+      const Vec &enterNormal = enterPeekDirection.normal;
+      const PEEK_FACES &enterFace = enterPeekDirection.face;
+      const Vec direction = groupSet->boundingSphere.center
+        + (enterNormal * slabRadius)
+        - position;
+      if (direction.dot(enterNormal) <= 0) {
+        for (const PeekDirection &exitPeekDirection : PEEK_DIRECTIONS) {
+          const Vec &exitNormal = exitPeekDirection.normal;
+          const PEEK_FACES &exitFace = exitPeekDirection.face;
+          const int *exitINormal = exitPeekDirection.inormal;
+          const Vec direction = groupSet->boundingSphere.center
+            + (exitNormal * slabRadius)
+            - position;
+          if (direction.dot(exitNormal) >= 0 && groupSet->peeks[PEEK_FACE_INDICES[(int)enterFace << 4 | (int)exitFace]]) {
+            int index = getSubparcelIndex(groupSet->x + exitINormal[0], groupSet->y + exitINormal[1], groupSet->z + exitINormal[2]);
+            auto nextGroupSetIter = std::find_if(frustumGroupSets.begin(), frustumGroupSets.end(), [&](GroupSet *groupSet) -> bool {
+              return groupSet->index == index;
+            });
+            if (nextGroupSetIter != frustumGroupSets.end()) {
+              GroupSet *nextGroupSet = *nextGroupSetIter;
+              if (nextGroupSet != nullptr && seenQueue.find(nextGroupSet) == seenQueue.end()) {
+                queue.push_back(nextGroupSet);
+                seenQueue.insert(nextGroupSet);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  std::sort(cullResults, cullResults + numCullResults, [&](const CullResult &a, const CullResult &b) -> bool {
+    return a.materialIndex < b.materialIndex;
+  });
 }
